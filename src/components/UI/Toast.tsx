@@ -178,7 +178,10 @@ const Toast: React.FC<ToastProps> = ({
               size="small"
               aria-label="закрыть"
               color="inherit"
-              onClick={() => onClose && onClose()}
+              onClick={(event) => {
+                if (onClose) onClose();
+                handleClose(event, 'closeButtonClick');
+              }}
             >
               <CloseIcon fontSize="small" />
             </IconButton>

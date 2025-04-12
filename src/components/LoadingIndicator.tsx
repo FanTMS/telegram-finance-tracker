@@ -53,7 +53,7 @@ const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({
       y: [0, -10, 0],
       transition: {
         repeat: Infinity,
-        repeatType: "loop",
+        repeatType: "loop" as const,
         duration: 1,
         ease: "easeInOut",
       }
@@ -67,7 +67,7 @@ const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({
       opacity: [0.3, 0.6, 0.3],
       transition: {
         repeat: Infinity,
-        repeatType: "loop",
+        repeatType: "loop" as const,
         duration: 2,
         ease: "easeInOut",
       }

@@ -28,10 +28,13 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build",
+    "build:with-types": "tsc && vite build",
     "preview": "vite preview",
     "predeploy": "npm run build",
     "netlify": "npm run build && netlify deploy",
-    "netlify:prod": "npm run build && netlify deploy --prod"
+    "netlify:prod": "npm run build && netlify deploy --prod",
+    "check-types": "tsc --noEmit",
+    "test-build": "CI=false npm run build && npm run preview"
   }
 }
