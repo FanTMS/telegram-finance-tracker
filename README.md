@@ -104,6 +104,25 @@ npm run build
    - Проверьте наличие неиспользуемых импортов и переменных
    - Исправьте ошибки типизации, особенно в сторонних библиотеках (framer-motion)
 
+### Настройка Content Security Policy (CSP)
+
+При использовании Firebase с Netlify необходимо настроить корректные CSP заголовки:
+
+1. В проекте уже настроены заголовки CSP в файлах:
+   - `public/_headers`
+   - `netlify.toml` в секции `[[headers]]`
+   - `index.html` в meta-теге
+
+2. Важно разрешить следующие домены для работы Firebase:
+   - `https://*.firebaseio.com` и `wss://*.firebaseio.com` для Realtime Database
+   - `https://*.googleapis.com` и `https://firestore.googleapis.com` для Firestore
+   - `https://*.firebase.com` для других сервисов Firebase
+
+3. При добавлении других внешних сервисов:
+   - Добавьте соответствующие домены в CSP
+   - Обновите все три места указанные выше
+   - Перезапустите деплой на Netlify
+
 ## Структура базы данных Firebase
 
 ### Коллекции:
