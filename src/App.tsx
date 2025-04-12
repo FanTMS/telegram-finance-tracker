@@ -360,6 +360,37 @@ let theme = createTheme({
 // Make fonts responsive
 theme = responsiveFontSizes(theme);
 
+// Apply WebApp expansion to prevent swipe-to-close on mobile
+const useWebAppExpansion = () => {
+  useEffect(() => {
+    try {
+      if (WebApp && typeof WebApp.setViewportHeight === 'function' && typeof WebApp.expand === 'function') {
+        // Prevent Telegram swipe-to-close behavior
+        WebApp.expand();
+        
+        // Dynamically update viewport height as needed
+        const updateViewportHeight = () => {
+          setTimeout(() => {
+            WebApp.setViewportHeight(window.innerHeight);
+          }, 100);
+        };
+        
+        // Set initial viewport height
+        updateViewportHeight();
+        
+        // Update on resize
+        window.addEventListener('resize', updateViewportHeight);
+        
+        return () => {
+          window.removeEventListener('resize', updateViewportHeight);
+        };
+      }
+    } catch (error) {
+      console.error('Error configuring WebApp expansion:', error);
+    }
+  }, []);
+};
+
 // AnimatedRoutes component to handle page transitions
 const AnimatedRoutes = () => {
   const location = useLocation();
@@ -397,7 +428,9 @@ const AnimatedRoutes = () => {
           background: 'rgba(255, 255, 255, 0.8)',
           backdropFilter: 'blur(10px)',
           borderBottom: '1px solid rgba(0, 0, 0, 0.05)',
-          color: 'text.primary'
+          color: 'text.primary',
+          WebkitBackfaceVisibility: 'hidden',
+          WebkitTransform: 'translate3d(0,0,0)',
         }}
       >
         <Toolbar sx={{ justifyContent: 'flex-end', minHeight: '56px' }}>
@@ -407,8 +440,18 @@ const AnimatedRoutes = () => {
       
       <Box 
         key="content"
-        sx={{ pb: '64px', pt: '10px' }}
-      > {/* Add padding bottom for the bottom nav */}
+        sx={{ 
+          pb: '84px', // Increased padding for bottom nav
+          pt: '10px', 
+          overflowY: 'auto', 
+          overflowX: 'hidden',
+          WebkitOverflowScrolling: 'touch',
+          height: 'calc(100% - 56px)', // Adjusting for AppBar height
+          position: 'relative',
+          overscrollBehavior: 'none',
+          flex: 1
+        }}
+      >
         <Routes location={location}>
           <Route path="/" element={
             <motion.div
@@ -516,12 +559,18 @@ const AnimatedRoutes = () => {
 const App: React.FC = () => {
   const [isReady, setIsReady] = useState(false);
   const [initError, setInitError] = useState<Error | null>(null);
+  
+  // Use the WebApp expansion hook
+  useWebAppExpansion();
 
   useEffect(() => {
     // Initialize Telegram WebApp safely
     try {
       if (WebApp && typeof WebApp.ready === 'function') {
         WebApp.ready();
+        if (typeof WebApp.expand === 'function') {
+          WebApp.expand();
+        }
         setIsReady(true);
         console.log('Telegram WebApp initialized successfully');
       } else {
@@ -690,10 +739,21 @@ const App: React.FC = () => {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Box
+        className="telegram-app"
         sx={{
           minHeight: '100vh',
           backgroundColor: theme.palette.background.default,
           overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          touchAction: 'none',
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: '100%',
+          height: '100%'
         }}
       >
         <Router 

@@ -169,6 +169,99 @@ export const createExpenseSplitNotifications = async (
   }
 };
 
+// Создание уведомлений об изменении расхода
+export const createExpenseUpdateNotifications = async (
+  groupId: string, 
+  expenseId: string, 
+  amount: number, 
+  description: string, 
+  fromUserId: string,
+  splitBetweenUsers: string[],
+  paidByUsers: string[]
+): Promise<void> => {
+  try {
+    // Get group information
+    const groupRef = doc(db, 'groups', groupId);
+    const groupSnap = await getDoc(groupRef);
+    
+    if (!groupSnap.exists()) {
+      throw new Error('Group not found');
+    }
+    
+    const group = groupSnap.data();
+    const groupName = group.name;
+    
+    // Get editor information 
+    const editorRef = doc(db, 'users', fromUserId);
+    const editorSnap = await getDoc(editorRef);
+    const editorName = editorSnap.exists() ? editorSnap.data().name : 'Пользователь';
+    
+    // Определяем получателей уведомлений
+    let notificationRecipients: string[] = [];
+    
+    // Добавляем пользователей, которые должны оплатить
+    if (splitBetweenUsers.length > 0) {
+      notificationRecipients = [...splitBetweenUsers];
+    } 
+    // Если не указаны участники для разделения, уведомляем всех участников группы
+    else if (group.members && group.members.length > 0) {
+      notificationRecipients = [...group.members];
+    }
+    
+    // Добавляем тех, кто оплатил, если они ещё не в списке
+    if (paidByUsers && paidByUsers.length > 0) {
+      paidByUsers.forEach(userId => {
+        if (!notificationRecipients.includes(userId)) {
+          notificationRecipients.push(userId);
+        }
+      });
+    }
+    
+    // Удаляем редактора из списка получателей
+    notificationRecipients = notificationRecipients.filter(userId => userId !== fromUserId);
+    
+    // Расчет суммы на одного человека, если указаны участники
+    const individualAmount = splitBetweenUsers.length > 0 ? 
+      amount / splitBetweenUsers.length : 0;
+    
+    // Создаем уведомления для всех получателей
+    const notificationPromises = notificationRecipients.map(userId => {
+      const isPayer = paidByUsers.includes(userId);
+      const isSplitUser = splitBetweenUsers.includes(userId);
+      
+      let title = `Расход изменен в группе ${groupName}`;
+      let message = `${editorName} изменил расход "${description}" на сумму ${amount} ₽.`;
+      
+      if (isSplitUser) {
+        message += ` Ваша часть: ${individualAmount.toFixed(2)} ₽.`;
+      }
+      
+      if (isPayer) {
+        message += ` Вы отмечены как оплативший.`;
+      }
+      
+      return createNotification({
+        userId,
+        type: 'expense',
+        title,
+        message,
+        isRead: false,
+        data: {
+          groupId,
+          expenseId,
+          amount: isSplitUser ? individualAmount : amount,
+          fromUserId
+        }
+      });
+    });
+    
+    await Promise.all(notificationPromises);
+  } catch (error) {
+    console.error('Error creating expense update notifications:', error);
+    throw error;
+  }
+};
+
 // Create payment notification
 export const createPaymentNotification = async (
   groupId: string,
@@ -210,6 +303,58 @@ export const createPaymentNotification = async (
     });
   } catch (error) {
     console.error('Error creating payment notification:', error);
+    throw error;
+  }
+};
+
+// Create notification for new recurring expense
+export const createRecurringExpenseNotification = async (
+  groupId: string,
+  expenseId: string,
+  amount: number,
+  description: string,
+  fromUserId: string,
+  notifyUserIds: string[]
+): Promise<void> => {
+  try {
+    // Get group information
+    const groupRef = doc(db, 'groups', groupId);
+    const groupSnap = await getDoc(groupRef);
+    
+    if (!groupSnap.exists()) {
+      throw new Error('Group not found');
+    }
+    
+    const group = groupSnap.data();
+    const groupName = group.name;
+    
+    // Get creator information 
+    const creatorRef = doc(db, 'users', fromUserId);
+    const creatorSnap = await getDoc(creatorRef);
+    const creatorName = creatorSnap.exists() ? creatorSnap.data().name : 'Пользователь';
+    
+    // Create notifications for each user except the creator
+    const notificationPromises = notifyUserIds
+      .filter(userId => userId !== fromUserId)
+      .map(userId => 
+        createNotification({
+          userId,
+          type: 'expense',
+          title: `Новый регулярный расход в группе ${groupName}`,
+          message: `${creatorName} добавил новый регулярный расход "${description}" на сумму ${amount} ₽`,
+          isRead: false,
+          data: {
+            groupId,
+            expenseId,
+            amount,
+            fromUserId
+          }
+        })
+      );
+    
+    await Promise.all(notificationPromises);
+  } catch (error) {
+    console.error('Error creating recurring expense notifications:', error);
     throw error;
   }
 }; 

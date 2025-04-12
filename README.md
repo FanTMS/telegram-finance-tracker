@@ -8,6 +8,8 @@
 - Добавление и отслеживание расходов внутри групп
 - Разделение расходов между участниками
 - Статистика и аналитика расходов
+- Создание и управление списками покупок в группах
+- Совместное редактирование списков покупок с отметкой выполненных товаров
 - Интеграция с Telegram WebApp API
 
 ## Требования
@@ -151,6 +153,25 @@ npm run build
   - createdAt: timestamp
   - splitBetween: string[] (массив ID пользователей, между которыми разделен расход)
   - paidBy: string[] (массив ID пользователей, которые оплатили)
+
+- **shoppingLists**: Списки покупок
+  - id: string (автоматически генерируется)
+  - title: string (название списка)
+  - groupId: string (ID группы)
+  - items: ShoppingItem[] (массив товаров)
+  - createdBy: string (ID создателя)
+  - createdAt: timestamp
+  - updatedAt: timestamp (опционально)
+
+- **ShoppingItem**: (вложенный объект в shoppingLists)
+  - id: string (автоматически генерируется)
+  - name: string (название товара)
+  - estimatedPrice: number (примерная стоимость)
+  - completed: boolean (статус товара)
+  - createdBy: string (ID создателя)
+  - createdAt: timestamp
+  - updatedBy: string (ID обновившего, опционально)
+  - updatedAt: timestamp (опционально)
 
 ## Известные ограничения и проблемы
 

@@ -102,7 +102,12 @@ const BottomNav: React.FC<BottomNavProps> = ({ badgeCounts = {} }) => {
         boxShadow: '0px -2px 14px rgba(0, 0, 0, 0.12)',
         overflow: 'hidden',
         backdropFilter: 'blur(10px)',
-        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        touchAction: 'none',
+        WebkitBackfaceVisibility: 'hidden',
+        WebkitTransform: 'translate3d(0,0,0)',
+        transform: 'translate3d(0,0,0)',
+        padding: 'env(safe-area-inset-bottom)',
       }} 
       elevation={0}
     >
@@ -115,10 +120,12 @@ const BottomNav: React.FC<BottomNavProps> = ({ badgeCounts = {} }) => {
         sx={{ 
           height: '68px',
           background: 'transparent',
+          touchAction: 'none',
           '& .MuiBottomNavigationAction-root': {
             minWidth: 'auto',
             padding: '8px 0 12px',
             transition: 'all 0.25s ease',
+            touchAction: 'none',
             '&.Mui-selected': {
               color: theme.palette.primary.main,
               paddingTop: '6px'
@@ -127,6 +134,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ badgeCounts = {} }) => {
           '& .MuiBottomNavigationAction-label': {
             fontSize: '0.7rem',
             opacity: 0.7,
+            touchAction: 'none',
             '&.Mui-selected': {
               opacity: 1,
               fontSize: '0.75rem',

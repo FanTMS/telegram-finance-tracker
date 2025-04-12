@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Box,
   Typography,
@@ -31,6 +31,20 @@ import {
   Container,
   Badge,
   Tooltip,
+  CircularProgress,
+  Tab,
+  Tabs,
+  Paper,
+  ToggleButton,
+  ToggleButtonGroup,
+  Switch,
+  FormControlLabel,
+  LinearProgress,
+  Autocomplete,
+  Stack,
+  Popover,
+  styled,
+  Fab
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -51,36 +65,129 @@ import {
   ArrowForward as ArrowForwardIcon,
   ViewList as ViewListIcon,
   Workspaces as WorkspacesIcon,
+  FilterList as FilterIcon,
+  Sort as SortIcon,
+  CalendarMonth as CalendarIcon,
+  ShowChart as ChartIcon,
+  CompareArrows as CompareIcon,
+  AutoAwesome as SmartIcon,
+  EventRepeat as RepeatIcon,
+  Search as SearchIcon,
+  Close as CloseIcon,
+  People as PeopleIcon,
+  Person as PersonIcon,
+  PieChart as PieChartIcon,
+  BarChart as BarChartIcon,
+  ShowChart as LineChartIcon,
+  Notifications as NotificationsIcon,
+  ShoppingCart as ShoppingCartIcon,
+  Pets as PetsIcon,
+  Celebration as CelebrationIcon,
+  LocalLaundryService as ClothingIcon,
+  Wifi as InternetIcon,
+  Receipt as ReceiptIcon,
+  Money as InvestmentIcon,
+  Lightbulb as UtilityIcon,
+  CardGiftcard as GiftIcon,
+  Category as CategoryIcon,
+  KeyboardArrowDown as KeyboardArrowDownIcon,
+  KeyboardArrowUp as KeyboardArrowUpIcon,
+  AccountCircle as AccountCircleIcon,
+  EmojiEmotions as EmojiIcon,
+  Restore as ResetIcon
 } from '@mui/icons-material';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTelegramApp } from '../hooks/useTelegramApp';
-import { createExpense, getGroupExpenses, deleteExpense, getGroups, Expense, Group } from '../services/firebase';
+import { createExpense, getGroupExpenses, deleteExpense, getGroups, Expense, Group, getUser, updateExpense, User } from '../services/firebase';
 import { Timestamp } from 'firebase/firestore';
 import { alpha as muiAlpha } from '@mui/material/styles';
 import DebtSummary from '../components/DebtSummary';
+import toast from 'react-hot-toast';
+import { Header } from '../components/UI';
+import AddExpenseDialog from '../components/AddExpenseDialog';
+import RecurringExpenseDialog from '../components/RecurringExpenseDialog';
+import EditExpenseDialog from '../components/EditExpenseDialog';
+import { createExpenseSplitNotifications, createExpenseUpdateNotifications, createRecurringExpenseNotification } from '../services/notifications';
+import { collection, addDoc, getDocs, query, where, orderBy, deleteDoc, doc, updateDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { db } from '../config/firebase';
 
-// Expense categories with icons
+// Импортируем компоненты для интерактивных графиков
+import {
+  ResponsiveContainer,
+  PieChart, Pie,
+  Cell,
+  BarChart, Bar,
+  XAxis, YAxis,
+  Tooltip as ChartTooltip,
+  Legend,
+  LineChart, Line,
+  CartesianGrid,
+  AreaChart, Area
+} from 'recharts';
+
+// Интерфейс для статистики категорий
+interface CategoryStat {
+  id: string;
+  name: string;
+  amount: number;
+  percentage: number;
+  icon: React.ReactNode;
+  color: string;
+}
+
+// Интерфейс для периодических расходов
+interface RecurringExpense {
+  id: string;
+  description: string;
+  amount: number;
+  category: string;
+  frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  nextDate: Date;
+  groupId: string;
+  active: boolean;
+  createdBy?: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+// Интерфейс для сравнения периодов
+interface PeriodComparison {
+  currentPeriod: number;
+  previousPeriod: number;
+  change: number;
+  changePercentage: number;
+}
+
+// Expense categories with icons and colors
 const categories = [
-  { id: 'food', name: 'Еда', icon: <RestaurantIcon /> },
-  { id: 'grocery', name: 'Продукты', icon: <GroceryIcon /> },
-  { id: 'transport', name: 'Транспорт', icon: <CarIcon /> },
-  { id: 'housing', name: 'Жилье', icon: <HomeIcon /> },
-  { id: 'health', name: 'Здоровье', icon: <HealthIcon /> },
-  { id: 'education', name: 'Образование', icon: <EducationIcon /> },
-  { id: 'entertainment', name: 'Развлечения', icon: <EntertainmentIcon /> },
-  { id: 'other', name: 'Другое', icon: <MoreIcon /> },
+  { id: 'food', name: 'Еда', icon: <RestaurantIcon />, color: '#FF5722' },
+  { id: 'grocery', name: 'Продукты', icon: <GroceryIcon />, color: '#4CAF50' },
+  { id: 'transport', name: 'Транспорт', icon: <CarIcon />, color: '#2196F3' },
+  { id: 'housing', name: 'Жилье', icon: <HomeIcon />, color: '#9C27B0' },
+  { id: 'health', name: 'Здоровье', icon: <HealthIcon />, color: '#E91E63' },
+  { id: 'education', name: 'Образование', icon: <EducationIcon />, color: '#3F51B5' },
+  { id: 'entertainment', name: 'Развлечения', icon: <EntertainmentIcon />, color: '#FF9800' },
+  { id: 'other', name: 'Другое', icon: <MoreIcon />, color: '#607D8B' },
 ];
 
-const Expenses: React.FC = () => {
+// Обновляем интерфейс Expense чтобы соответствовать структуре из firebase
+export interface ExpenseWithTimestamp extends Expense {
+  timestamp: Timestamp;
+}
+
+const Expenses = (): JSX.Element => {
   const theme = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const { user, showAlert, showConfirm } = useTelegramApp();
   const [searchParams] = useSearchParams();
   const groupId = searchParams.get('groupId');
+  const initialAction = searchParams.get('action');
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
-  const [openAddDialog, setOpenAddDialog] = useState(false);
+  const [openAddDialog, setOpenAddDialog] = useState(initialAction === 'add');
+  const [openEditDialog, setOpenEditDialog] = useState(false);
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('food');
@@ -92,6 +199,43 @@ const Expenses: React.FC = () => {
     category: '',
     description: '',
   });
+  const [groupMembers, setGroupMembers] = useState<User[]>([]);
+  
+  // Новые состояния для улучшенного функционала
+  const [viewMode, setViewMode] = useState<'list' | 'categories'>('list');
+  const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([]);
+  const [periodComparison, setPeriodComparison] = useState<PeriodComparison | null>(null);
+  const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'year'>('month');
+  const [openRecurringDialog, setOpenRecurringDialog] = useState(false);
+  const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
+  const [showRecurringExpenses, setShowRecurringExpenses] = useState(false);
+  const [recurringFormData, setRecurringFormData] = useState({
+    description: '',
+    amount: '',
+    category: 'food',
+    frequency: 'monthly',
+    nextDate: new Date(),
+    groupId: '',
+    active: true
+  });
+  const [filterAnchorEl, setFilterAnchorEl] = useState<HTMLElement | null>(null);
+  const [filters, setFilters] = useState({
+    minAmount: '',
+    maxAmount: '',
+    categories: [] as string[],
+    dateFrom: null as Date | null,
+    dateTo: null as Date | null,
+  });
+  const [sortBy, setSortBy] = useState<'date' | 'amount' | 'category'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isFilterActive, setIsFilterActive] = useState(false);
+  const [activeTab, setActiveTab] = useState(0);
+
+  // Добавляем состояние для интерактивных графиков
+  const [showChartDetails, setShowChartDetails] = useState(false);
+  const [selectedCategoryForDetails, setSelectedCategoryForDetails] = useState<string | null>(null);
+  const [chartType, setChartType] = useState<'pie' | 'bar' | 'line'>('pie');
 
   // Animation variants
   const containerVariants = {
@@ -183,28 +327,50 @@ const Expenses: React.FC = () => {
     fetchUserGroups();
   }, [user]);
 
-  // Fetch expenses for the group
+  // Fetch expenses for the group when selectedGroupId changes
   useEffect(() => {
-    if (groupId) {
-      setSelectedGroupId(groupId);
+    if (selectedGroupId) {
       fetchExpenses();
+      fetchGroupMembers();
     } else {
       // Set empty expenses list if no group ID
       setExpenses([]);
       setLoading(false);
     }
-  }, [groupId]);
+  }, [selectedGroupId]);
+  
+  // Fetch group members
+  const fetchGroupMembers = async () => {
+    if (!selectedGroupId) return;
+    
+    try {
+      const selectedGroup = groups.find(g => g.id === selectedGroupId);
+      if (!selectedGroup || !selectedGroup.members) return;
+      
+      const membersPromises = selectedGroup.members.map(async (memberId) => {
+        try {
+          const user = await getUser(memberId);
+          return user || { id: memberId, name: `Пользователь ${memberId}` };
+        } catch (error) {
+          console.error(`Error fetching user ${memberId}:`, error);
+          return { id: memberId, name: `Пользователь ${memberId}` };
+        }
+      });
+      
+      const members = await Promise.all(membersPromises);
+      setGroupMembers(members.filter(Boolean) as User[]);
+    } catch (error) {
+      console.error('Error fetching group members:', error);
+    }
+  };
 
   const fetchExpenses = async () => {
+    if (!selectedGroupId) return;
+    
     setLoading(true);
     try {
-      if (!groupId) {
-        setLoading(false);
-        return;
-      }
-      
-      const fetchedExpenses = await getGroupExpenses(groupId);
-      setExpenses(fetchedExpenses);
+      const groupExpenses = await getGroupExpenses(selectedGroupId);
+      setExpenses(groupExpenses);
     } catch (error) {
       console.error('Error fetching expenses:', error);
       showAlert('Ошибка при загрузке расходов');
@@ -213,627 +379,799 @@ const Expenses: React.FC = () => {
     }
   };
 
-  const handleAddExpense = async () => {
-    if (!amount) {
-      showAlert('Пожалуйста, укажите сумму');
-      return;
-    }
-
-    if (!selectedGroupId) {
-      showAlert('Ошибка: группа не выбрана');
-      return;
-    }
-
-    if (!user) {
-      showAlert('Ошибка: пользователь не авторизован');
-      return;
-    }
-
-    // Validate amount as a number
-    const amountValue = parseFloat(amount);
-    if (isNaN(amountValue) || amountValue <= 0) {
-      showAlert('Сумма должна быть положительным числом');
-      return;
-    }
-
-    setLoading(true);
+  // Определяем тип для функции handleAddExpense, использующей правильное преобразование timestamp
+  const handleAddExpense = async (expenseData?: {
+    amount: number;
+    description: string;
+    category: string;
+    groupId: string;
+    splitBetween: string[];
+    paidBy: string[];
+  }) => {
     try {
-      // Get the selected group to get members
-      const selectedGroup = groups.find(group => group.id === selectedGroupId);
+      setLoading(true);
       
-      if (!selectedGroup) {
-        throw new Error('Selected group not found');
-      }
-      
-      // By default, split between all members of the group
-      const splitBetween = selectedGroup.members;
-      
-      const newExpense = {
+      // Если данные пришли из диалога, используем их
+      const newExpense: Omit<Expense, "id"> = expenseData ? {
+        groupId: expenseData.groupId,
+        amount: expenseData.amount,
+        category: expenseData.category,
+        description: expenseData.description,
+        createdBy: user?.id?.toString() || '',
+        createdAt: Timestamp.now(),
+        splitBetween: expenseData.splitBetween,
+        paidBy: expenseData.paidBy
+      } : {
+        // Используем данные из состояния (старая логика)
         groupId: selectedGroupId,
-        amount: amountValue,
-        category,
-        description: description || '',
-        createdBy: user.id.toString(),
-        createdAt: new Date() as any, // Will be overridden by serverTimestamp()
-        splitBetween,
-        paidBy: [user.id.toString()],
+        amount: parseFloat(amount),
+        category: category,
+        description: description,
+        createdBy: user?.id?.toString() || '',
+        createdAt: Timestamp.now(),
+        splitBetween: [],
+        paidBy: []
       };
-
-      console.log('Adding expense:', newExpense);
+      
       const createdExpense = await createExpense(newExpense);
       
-      // Create notifications for group members
-      if (splitBetween.length > 1) {
-        try {
-          // Import here to avoid circular dependency
-          const { createExpenseSplitNotifications } = require('../services/notifications');
-          
-          await createExpenseSplitNotifications(
-            selectedGroupId,
-            createdExpense.id,
-            amountValue,
-            description,
-            user.id.toString(),
-            splitBetween
-          );
-        } catch (notificationError) {
-          console.error('Error creating notifications:', notificationError);
-          // Don't fail the whole expense creation if notifications fail
-        }
+      // Создаем уведомления о новом расходе
+      if (user?.id && newExpense.splitBetween.length > 0) {
+        await createExpenseSplitNotifications(
+          newExpense.groupId,
+          createdExpense.id,
+          newExpense.amount,
+          newExpense.description,
+          user.id.toString(),
+          newExpense.splitBetween
+        );
       }
       
+      toast.success('Расход успешно добавлен');
       setOpenAddDialog(false);
+      fetchExpenses();
+      
+      // Сбрасываем форму
       setAmount('');
       setDescription('');
       setCategory('food');
-      showAlert('Расход успешно добавлен');
-      
-      // If we're already viewing this group, refresh expenses
-      if (selectedGroupId === groupId) {
-        await fetchExpenses();
-      } else if (selectedGroupId) {
-        // Navigate to the newly selected group
-        navigate(`/expenses?groupId=${selectedGroupId}`);
-      }
     } catch (error) {
       console.error('Error adding expense:', error);
-      showAlert('Ошибка при добавлении расхода');
+      toast.error('Ошибка при добавлении расхода');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeleteExpense = async (expenseId: string) => {
+  // Функция редактирования расхода
+  const handleEditExpense = async (expenseId: string, expenseData: {
+    amount: number;
+    description: string;
+    category: string;
+    splitBetween: string[];
+    paidBy: string[];
+  }) => {
     try {
-      // Используем JavaScript confirm напрямую, так как Telegram WebApp API для showConfirm может не работать
-      const confirmed = await showConfirm('Вы уверены, что хотите удалить этот расход?');
+      setLoading(true);
       
-      if (confirmed) {
-        await deleteExpense(expenseId);
-        showAlert('Расход удален');
-        await fetchExpenses(); // Refresh expense list
+      await updateExpense(expenseId, {
+        amount: expenseData.amount,
+        description: expenseData.description,
+        category: expenseData.category,
+        splitBetween: expenseData.splitBetween,
+        paidBy: expenseData.paidBy
+      });
+      
+      // Создаем уведомления об изменении расхода
+      if (user?.id && selectedGroupId) {
+        await createExpenseUpdateNotifications(
+          selectedGroupId,
+          expenseId,
+          expenseData.amount,
+          expenseData.description,
+          user.id.toString(),
+          expenseData.splitBetween,
+          expenseData.paidBy
+        );
       }
+      
+      toast.success('Расход успешно обновлен');
+      setOpenEditDialog(false);
+      setSelectedExpense(null);
+      fetchExpenses();
+    } catch (error) {
+      console.error('Error updating expense:', error);
+      toast.error('Ошибка при обновлении расхода');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Функция для открытия диалога редактирования
+  const handleOpenEditDialog = (expense: Expense) => {
+    setSelectedExpense(expense);
+    setOpenEditDialog(true);
+  };
+
+  // Handle deleting an expense
+  const handleDeleteExpense = async (expenseId: string) => {
+    const confirmed = await showConfirm('Вы уверены, что хотите удалить этот расход?');
+    if (!confirmed) return;
+    
+    setLoading(true);
+    try {
+      await deleteExpense(expenseId);
+      
+      // Refresh the list
+      fetchExpenses();
+      
+      showAlert('Расход успешно удален');
     } catch (error) {
       console.error('Error deleting expense:', error);
       showAlert('Ошибка при удалении расхода');
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Get category icon
   const getCategoryIcon = (categoryId: string) => {
     const category = categories.find(c => c.id === categoryId);
-    return category ? category.icon : <MoreIcon />;
+    return category?.icon || <MoreIcon />;
   };
 
+  // Format timestamp to readable date
   const formatDate = (timestamp: Timestamp) => {
     return timestamp.toDate().toLocaleDateString('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
     });
   };
 
-  // Get random color for group avatar
+  // Generate color for group
   const getGroupColor = (name: string) => {
     const colors = [
-      '#F44336', '#E91E63', '#9C27B0', '#673AB7', '#3F51B5', 
-      '#2196F3', '#03A9F4', '#00BCD4', '#009688', '#4CAF50', 
-      '#8BC34A', '#CDDC39', '#FFC107', '#FF9800', '#FF5722'
+      '#1976d2', // Blue
+      '#388e3c', // Green
+      '#d32f2f', // Red
+      '#f57c00', // Orange
+      '#7b1fa2', // Purple
+      '#0097a7', // Teal
+      '#c2185b', // Pink
+      '#00897b', // Green-Teal
+      '#5c6bc0', // Indigo
+      '#fbc02d', // Yellow
     ];
     
-    if (!name || name.length === 0) {
-      return colors[0];
+    // Simple hash function to get a consistent color for the same name
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
     
-    const index = name.charCodeAt(0) % colors.length;
+    // Use the hash to pick a color
+    const index = Math.abs(hash) % colors.length;
     return colors[index];
   };
 
-  return (
-    <Box sx={{ p: { xs: 2, sm: 3 }, pb: 9, maxWidth: '100vw', overflow: 'hidden' }}>
-      <motion.div
-        initial="hidden"
-        animate="visible"
-        exit="exit"
-        variants={containerVariants}
+  // Вычисление статистики по категориям
+  useEffect(() => {
+    if (expenses.length > 0) {
+      const categoryTotals: Record<string, number> = {};
+      let total = 0;
+      
+      // Суммируем расходы по категориям
+      expenses.forEach(expense => {
+        const cat = expense.category || 'other';
+        categoryTotals[cat] = (categoryTotals[cat] || 0) + expense.amount;
+        total += expense.amount;
+      });
+      
+      // Формируем статистику по категориям с процентами
+      const stats: CategoryStat[] = categories.map(cat => {
+        const amount = categoryTotals[cat.id] || 0;
+        const percentage = total > 0 ? (amount / total) * 100 : 0;
+        return {
+          id: cat.id,
+          name: cat.name,
+          amount,
+          percentage,
+          icon: cat.icon,
+          color: cat.color
+        };
+      }).filter(stat => stat.amount > 0)
+      .sort((a, b) => b.amount - a.amount);
+      
+      setCategoryStats(stats);
+    } else {
+      setCategoryStats([]);
+    }
+  }, [expenses]);
+
+  // Сравнение с предыдущим периодом
+  useEffect(() => {
+    // Имитация получения данных для сравнения периодов
+    // В реальном приложении здесь должен быть запрос к API
+    const simulateComparisonData = () => {
+      if (expenses.length === 0) return;
+      
+      const currentTotal = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+      // Симуляция предыдущего периода (85-115% от текущего)
+      const randomFactor = 0.85 + Math.random() * 0.3;
+      const previousTotal = Math.round(currentTotal * randomFactor);
+      const change = currentTotal - previousTotal;
+      const changePercentage = previousTotal > 0 ? (change / previousTotal) * 100 : 0;
+      
+      setPeriodComparison({
+        currentPeriod: currentTotal,
+        previousPeriod: previousTotal,
+        change,
+        changePercentage
+      });
+    };
+    
+    simulateComparisonData();
+  }, [expenses, selectedPeriod]);
+
+  // Функция для обработки клика по категории в графике
+  const handleCategoryClick = (category: string) => {
+    setSelectedCategoryForDetails(category);
+    setShowChartDetails(true);
+  };
+  
+  // Функция для отображения детальной информации о расходах по категории
+  const renderCategoryDetails = () => {
+    if (!selectedCategoryForDetails) return null;
+    
+    const categoryExpenses = expenses.filter(exp => exp.category === selectedCategoryForDetails) as ExpenseWithTimestamp[];
+    const categoryName = categories.find(c => c.id === selectedCategoryForDetails)?.name || 'Неизвестная категория';
+    const categoryColor = getGroupColor(selectedCategoryForDetails);
+    
+    return (
+      <Dialog 
+        open={showChartDetails} 
+        onClose={() => setShowChartDetails(false)}
+        maxWidth="sm"
+        fullWidth
       >
-        {/* Header section with blur effect and sticky positioning */}
-        <Box 
-          sx={{ 
-            position: 'sticky', 
-            top: 0, 
-            zIndex: 10, 
-            pt: 1,
-            pb: 2,
-            mb: 2,
-            backdropFilter: 'blur(10px)',
-            backgroundColor: muiAlpha(theme.palette.background.default, 0.8),
-            borderRadius: '0 0 20px 20px',
-          }}
-        >
-          <Box 
-            sx={{ 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center',
-            }}
-          >
-            <Typography 
-              variant="h4" 
-              sx={{ 
-                fontWeight: 'bold',
-                fontSize: { xs: '1.75rem', sm: '2rem' },
-                background: 'linear-gradient(45deg, #0088cc, #1d8bc0)',
-                backgroundClip: 'text',
-                color: 'transparent',
-                WebkitBackgroundClip: 'text',
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Avatar
+              sx={{
+                width: 32,
+                height: 32,
+                mr: 1.5,
+                bgcolor: muiAlpha(categoryColor, 0.2),
+                color: categoryColor
               }}
             >
-              Расходы
-            </Typography>
-            <motion.div
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => setOpenAddDialog(true)}
-                sx={{ 
-                  borderRadius: '12px',
-                  boxShadow: '0 4px 12px rgba(0, 136, 204, 0.3)',
-                  px: { xs: 2, sm: 3 },
-                }}
-              >
-                Добавить
-              </Button>
-            </motion.div>
+              {getCategoryIcon(selectedCategoryForDetails)}
+            </Avatar>
+            <Typography variant="h6">{categoryName}</Typography>
           </Box>
-
-          {/* Updated Group selector with more visual appeal */}
-          {!groupId && groups.length > 0 && (
-            <Box sx={{ mt: 3 }}>
-              <Typography 
-                variant="subtitle1" 
-                sx={{ 
-                  mb: 1.5, 
-                  fontWeight: 500, 
-                  display: 'flex', 
-                  alignItems: 'center',
-                  color: theme.palette.text.secondary
-                }}
-              >
-                <WorkspacesIcon sx={{ mr: 1, fontSize: '1.2rem', color: theme.palette.primary.main }} />
-                Выберите группу расходов
-              </Typography>
-              
-              <Box 
-                sx={{ 
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-                  gap: 2,
-                }}
-              >
-                {groups.map((group) => (
-                  <motion.div
-                    key={group.id}
-                    whileHover={{ scale: 1.03, y: -3 }}
-                    whileTap={{ scale: 0.97 }}
+          <IconButton onClick={() => setShowChartDetails(false)}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          {categoryExpenses.length > 0 ? (
+            <>
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
+                  Распределение по дням
+                </Typography>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart
+                    data={getDailyExpenseDataForCategory(selectedCategoryForDetails)}
+                    margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
                   >
-                    <Card 
-                      onClick={() => {
-                        setSelectedGroupId(group.id);
-                        navigate(`/expenses?groupId=${group.id}`);
-                      }}
-                      raised={selectedGroupId === group.id}
-                      sx={{ 
-                        p: 2,
-                        cursor: 'pointer',
-                        borderRadius: '16px',
-                        height: '100%',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        textAlign: 'center',
-                        transition: 'all 0.3s ease',
-                        border: '1px solid',
-                        borderColor: selectedGroupId === group.id 
-                          ? theme.palette.primary.main 
-                          : muiAlpha(theme.palette.divider, 0.1),
-                        backgroundColor: selectedGroupId === group.id 
-                          ? muiAlpha(theme.palette.primary.main, 0.1)
-                          : theme.palette.background.paper,
-                        boxShadow: selectedGroupId === group.id 
-                          ? `0 8px 16px ${muiAlpha(theme.palette.primary.main, 0.2)}`
-                          : 'none',
-                        '&:hover': {
-                          backgroundColor: selectedGroupId === group.id 
-                            ? muiAlpha(theme.palette.primary.main, 0.15)
-                            : muiAlpha(theme.palette.background.paper, 0.8),
-                          boxShadow: `0 5px 15px ${muiAlpha(theme.palette.primary.main, 0.2)}`,
-                        },
-                      }}
-                    >
-                      <Badge 
-                        overlap="circular"
-                        badgeContent={group.members.length}
-                        color="primary"
-                        sx={{ 
-                          '& .MuiBadge-badge': {
-                            fontSize: '0.7rem',
-                            height: '22px',
-                            minWidth: '22px',
-                            borderRadius: '50%',
-                          }
-                        }}
-                      >
-                        <Avatar 
-                          sx={{ 
-                            width: 56, 
-                            height: 56, 
-                            mb: 1.5,
-                            bgcolor: getGroupColor(group.name),
-                            fontSize: '1.5rem',
-                            boxShadow: selectedGroupId === group.id 
-                              ? `0 0 0 3px ${theme.palette.primary.main}`
-                              : 'none',
-                          }}
-                        >
-                          {group.name.charAt(0).toUpperCase()}
-                        </Avatar>
-                      </Badge>
-                      <Typography 
-                        variant="subtitle1" 
-                        sx={{ 
-                          fontWeight: 600,
-                          color: selectedGroupId === group.id
-                            ? theme.palette.primary.main
-                            : theme.palette.text.primary,
-                        }}
-                        noWrap
-                      >
-                        {group.name}
-                      </Typography>
-                      <Tooltip title="Перейти к расходам группы">
-                        <Box 
-                          sx={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'center',
-                            mt: 'auto',
-                            pt: 1,
-                            color: theme.palette.primary.main,
-                            opacity: selectedGroupId === group.id ? 1 : 0.6,
-                          }}
-                        >
-                          <Typography 
-                            variant="caption" 
-                            sx={{ 
-                              fontWeight: 500,
-                              mr: 0.5 
-                            }}
-                          >
-                            Перейти
-                          </Typography>
-                          <ArrowForwardIcon fontSize="small" />
-                        </Box>
-                      </Tooltip>
-                    </Card>
-                  </motion.div>
-                ))}
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="date" 
+                      tickFormatter={(date) => new Date(date).toLocaleDateString('ru', { day: '2-digit', month: '2-digit' })}
+                    />
+                    <YAxis />
+                    <ChartTooltip
+                      formatter={(value: number) => [`${value.toLocaleString()} ₽`, 'Сумма']}
+                      labelFormatter={(label) => new Date(label).toLocaleDateString('ru')}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="amount" 
+                      stroke={categoryColor} 
+                      activeDot={{ r: 8 }} 
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </Box>
-            </Box>
-          )}
-          
-          {/* If we already have a group selected, show a compact view */}
-          {groupId && (
-            <Box sx={{ mt: 2 }}>
-              <Button
-                variant="outlined"
-                startIcon={<ViewListIcon />}
-                onClick={() => navigate('/expenses')}
-                size="small"
-                sx={{ 
-                  borderRadius: '10px',
-                  textTransform: 'none',
-                }}
-              >
-                Все группы
-              </Button>
               
-              {/* Current group indicator */}
-              {selectedGroupId && groups.length > 0 && (
-                <Box 
-                  sx={{ 
-                    display: 'flex', 
-                    alignItems: 'center',
-                    mt: 2,
-                    p: 1.5,
-                    borderRadius: '12px',
-                    backgroundColor: muiAlpha(theme.palette.primary.main, 0.1),
-                  }}
-                >
-                  <Avatar 
-                    sx={{ 
-                      bgcolor: getGroupColor(
-                        groups.find(g => g.id === selectedGroupId)?.name || ''
-                      ),
-                      mr: 2,
-                    }}
-                  >
-                    {(groups.find(g => g.id === selectedGroupId)?.name || '').charAt(0).toUpperCase()}
-                  </Avatar>
-                  <Box>
-                    <Typography variant="subtitle1" fontWeight={600}>
-                      {groups.find(g => g.id === selectedGroupId)?.name}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {groups.find(g => g.id === selectedGroupId)?.members.length || 0} участников
-                    </Typography>
-                  </Box>
-                </Box>
-              )}
-            </Box>
-          )}
-        </Box>
-
-        {expenses.length === 0 ? (
-          <Box 
-            sx={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
-              alignItems: 'center', 
-              justifyContent: 'center',
-              minHeight: '50vh',
-              textAlign: 'center',
-              py: 4
-            }}
-          >
-            <AccountBalanceIcon 
-              sx={{ 
-                fontSize: 50, 
-                color: theme.palette.primary.main, 
-                opacity: 0.7, 
-                mb: 3 
-              }} 
-            />
-            <Typography variant="h6" sx={{ mb: 1, fontWeight: 500 }}>
-              Расходов пока нет
-            </Typography>
-            <Typography 
-              variant="body2" 
-              color="text.secondary" 
-              sx={{ mb: 4, maxWidth: '280px', mx: 'auto' }}
-            >
-              Добавьте расход, чтобы начать отслеживать финансы
-            </Typography>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => setOpenAddDialog(true)}
-              size="large"
-              sx={{ borderRadius: '10px' }}
-            >
-              Добавить расход
-            </Button>
-          </Box>
-        ) : (
-          <motion.div variants={containerVariants}>
-            {expenses.map((expense) => (
-              <motion.div 
-                key={expense.id} 
-                variants={itemVariants}
-                whileHover="hover"
-                whileTap="tap"
-              >
-                <Card sx={{ 
-                  mb: 2.5, 
-                  borderRadius: '20px',
-                  overflow: 'hidden',
-                  transition: 'all 0.3s ease',
-                  border: '1px solid',
-                  borderColor: muiAlpha(theme.palette.divider, 0.1),
-                  backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.9), rgba(250,250,255,0.85))',
-                  backdropFilter: 'blur(8px)',
-                }}>
-                  <CardContent sx={{ p: 0 }}>
-                    {/* Category color strip */}
-                    <Box sx={{ 
-                      height: '6px', 
-                      background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${muiAlpha(theme.palette.primary.light, 0.7)})`,
-                    }} />
-                    
-                    <Box sx={{ p: 2.5 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <Avatar sx={{ 
-                            bgcolor: muiAlpha(theme.palette.primary.main, 0.15), 
-                            color: theme.palette.primary.main,
-                            mr: 2,
-                            boxShadow: `0 4px 12px ${muiAlpha(theme.palette.primary.main, 0.15)}`,
-                            p: 1.5,
-                            width: 48,
-                            height: 48,
-                          }}>
-                            {getCategoryIcon(expense.category)}
-                          </Avatar>
-                          <Box>
-                            <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                              {expense.description}
-                            </Typography>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Typography 
-                                variant="caption" 
-                                sx={{ 
-                                  color: theme.palette.text.secondary,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  fontWeight: 500,
-                                }}
-                              >
-                                <Box 
-                                  component="span" 
-                                  sx={{ 
-                                    width: 8, 
-                                    height: 8, 
-                                    bgcolor: theme.palette.primary.main,
-                                    borderRadius: '50%',
-                                    display: 'inline-block',
-                                    mr: 0.5
-                                  }} 
-                                />
-                                {formatDate(expense.createdAt)}
-                              </Typography>
-                              <Chip 
-                                label={categories.find(c => c.id === expense.category)?.name || 'Другое'} 
-                                size="small" 
-                                sx={{ 
-                                  height: 20,
-                                  borderRadius: '10px',
-                                  backgroundColor: muiAlpha(theme.palette.primary.main, 0.1),
-                                  color: theme.palette.primary.main,
-                                  fontWeight: 500,
-                                  fontSize: '0.7rem',
-                                  '& .MuiChip-label': { px: 1 },
-                                }}
-                              />
-                            </Box>
-                          </Box>
-                        </Box>
-                        <Box sx={{ textAlign: 'right' }}>
-                          <Typography 
-                            variant="h6" 
-                            sx={{ 
-                              fontWeight: 700,
-                              color: 'transparent',
-                              backgroundImage: 'linear-gradient(45deg, #0088cc, #1d8bc0)',
-                              backgroundClip: 'text',
-                              WebkitBackgroundClip: 'text',
-                            }}
-                          >
-                            {expense.amount.toFixed(2)} ₽
+              <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
+                Список расходов
+              </Typography>
+              <List>
+                {categoryExpenses.map((expense) => (
+                  <React.Fragment key={expense.id}>
+                    <ListItem>
+                      <Box>
+                        <Typography variant="body1">
+                          {expense.description}
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.5 }}>
+                          <Typography component="span" variant="body2">
+                            {expense.amount.toLocaleString()} ₽
+                          </Typography>
+                          <Typography component="span" variant="body2" sx={{ mx: 1, color: 'text.secondary' }}>•</Typography>
+                          <Typography component="span" variant="body2" color="text.secondary">
+                            {expense.timestamp ? expense.timestamp.toDate().toLocaleDateString() : 'Нет даты'}
                           </Typography>
                         </Box>
                       </Box>
-                      
-                      <Divider sx={{ my: 2, opacity: 0.6 }} />
-                      
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    </ListItem>
+                    <Divider />
+                  </React.Fragment>
+                ))}
+              </List>
+            </>
+          ) : (
+            <Box sx={{ py: 4, textAlign: 'center' }}>
+              <Typography color="text.secondary">
+                Нет расходов в этой категории
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowChartDetails(false)}>Закрыть</Button>
+        </DialogActions>
+      </Dialog>
+    );
+  };
+  
+  // Функция для получения данных по дням для выбранной категории
+  const getDailyExpenseDataForCategory = (categoryId: string) => {
+    if (!expenses || expenses.length === 0) return [];
+    
+    const categoryExpenses = expenses.filter(exp => exp.category === categoryId) as ExpenseWithTimestamp[];
+    const dateMap = new Map<string, { date: string, amount: number }>();
+    
+    categoryExpenses.forEach(expense => {
+      if (!expense.timestamp) return;
+      
+      const date = expense.timestamp.toDate().toISOString().split('T')[0];
+      const existing = dateMap.get(date) || { date, amount: 0 };
+      
+      existing.amount += expense.amount;
+      dateMap.set(date, existing);
+    });
+    
+    return Array.from(dateMap.values()).sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+  };
+  
+  // Функция для отображения интерактивного графика категорий
+  const renderInteractiveChart = () => {
+    // Подготовка данных для графика
+    const chartData = categories.map(category => {
+      const categoryExpenses = expenses.filter(exp => exp.category === category.id);
+      const totalAmount = categoryExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+      const percentage = expenses.length > 0 ? (totalAmount / expenses.reduce((sum, exp) => sum + exp.amount, 0)) * 100 : 0;
+      
+      return {
+        id: category.id,
+        name: category.name,
+        amount: totalAmount,
+        percentage
+      };
+    }).filter(item => item.amount > 0);
+    
+    if (chartData.length === 0) {
+      return (
+        <Box sx={{ p: 4, textAlign: 'center' }}>
+          <Typography color="text.secondary">
+            Нет данных для построения графика
+          </Typography>
+        </Box>
+      );
+    }
+    
+    // Переключатель типа графика
+    const renderChartTypeSelector = () => (
+      <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+        <IconButton 
+          onClick={() => setChartType('pie')}
+          color={chartType === 'pie' ? 'primary' : 'default'}
+        >
+          <PieChartIcon />
+        </IconButton>
+        <IconButton 
+          onClick={() => setChartType('bar')}
+          color={chartType === 'bar' ? 'primary' : 'default'}
+        >
+          <BarChartIcon />
+        </IconButton>
+        <IconButton 
+          onClick={() => setChartType('line')}
+          color={chartType === 'line' ? 'primary' : 'default'}
+        >
+          <LineChartIcon />
+        </IconButton>
+      </Box>
+    );
+    
+    return (
+      <Paper 
+        sx={{ 
+          p: 2, 
+          mb: 3, 
+          borderRadius: 3,
+          bgcolor: muiAlpha(theme.palette.background.paper, 0.6),
+          backdropFilter: 'blur(10px)',
+        }}
+      >
+        <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, textAlign: 'center' }}>
+          Распределение расходов по категориям
+        </Typography>
+        
+        {renderChartTypeSelector()}
+        
+        {chartType === 'pie' && (
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={chartData}
+                dataKey="amount"
+                nameKey="name"
+                cx="50%"
+                cy="50%"
+                outerRadius={100}
+                innerRadius={60}
+                labelLine={false}
+                onClick={(data) => handleCategoryClick(data.id)}
+                label={({ name, percentage }) => `${name} (${percentage.toFixed(0)}%)`}
+              >
+                {chartData.map((entry, index) => (
+                  <Cell 
+                    key={`cell-${index}`} 
+                    fill={getGroupColor(entry.id)} 
+                    style={{ cursor: 'pointer' }}
+                  />
+                ))}
+              </Pie>
+              <ChartTooltip 
+                formatter={(value: number) => [`${value.toLocaleString()} ₽`, 'Сумма']}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        )}
+        
+        {chartType === 'bar' && (
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart
+              data={chartData}
+              margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <ChartTooltip
+                formatter={(value: number) => [`${value.toLocaleString()} ₽`, 'Сумма']}
+              />
+              <Bar 
+                dataKey="amount" 
+                onClick={(data) => handleCategoryClick(data.id)} 
+                style={{ cursor: 'pointer' }}
+              >
+                {chartData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={getGroupColor(entry.id)} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+        
+        {chartType === 'line' && (
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart
+              data={getTimeSeriesData()}
+              margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis 
+                dataKey="date" 
+                tickFormatter={(date) => new Date(date).toLocaleDateString('ru', { day: '2-digit', month: '2-digit' })}
+              />
+              <YAxis />
+              <ChartTooltip
+                formatter={(value: number) => [`${value.toLocaleString()} ₽`, 'Сумма']}
+                labelFormatter={(label) => new Date(label).toLocaleDateString('ru')}
+              />
+              <Legend />
+              {categories.map((category) => {
+                // Проверяем, есть ли расходы для этой категории
+                const hasExpenses = getTimeSeriesData().some(item => item[category.id] > 0);
+                if (!hasExpenses) return null;
+                
+                return (
+                  <Line
+                    key={category.id}
+                    type="monotone"
+                    dataKey={category.id}
+                    name={category.name}
+                    stroke={getGroupColor(category.id)}
+                    activeDot={{ r: 8, onClick: () => handleCategoryClick(category.id) }}
+                    style={{ cursor: 'pointer' }}
+                  />
+                );
+              })}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+        
+        <Box sx={{ mt: 2, textAlign: 'center' }}>
+          <Typography variant="caption" color="text.secondary">
+            Нажмите на категорию для просмотра детальной информации
+          </Typography>
+        </Box>
+      </Paper>
+    );
+  };
+  
+  // Функция для подготовки данных временного ряда для линейного графика
+  const getTimeSeriesData = () => {
+    if (!expenses || expenses.length === 0) return [];
+    
+    const dateMap = new Map<string, {date: string, [key: string]: any}>();
+    
+    (expenses as ExpenseWithTimestamp[]).forEach(expense => {
+      if (!expense.timestamp) return;
+      
+      const date = expense.timestamp.toDate().toISOString().split('T')[0];
+      const existingDate = dateMap.get(date) || { date };
+      const category = expense.category || 'other';
+      
+      existingDate[category] = (existingDate[category] || 0) + expense.amount;
+      dateMap.set(date, existingDate);
+    });
+    
+    return Array.from(dateMap.values()).sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+  };
+
+  // Функция для отображения списка расходов
+  const renderExpenses = () => {
+    const filteredExpenses = getFilteredAndSortedExpenses();
+    
+    if (filteredExpenses.length === 0) {
+      return (
+        <Paper 
+          sx={{ 
+            p: 3, 
+            mb: 3, 
+            borderRadius: 3,
+            textAlign: 'center',
+            bgcolor: muiAlpha(theme.palette.background.paper, 0.6),
+          }}
+        >
+          <Typography color="text.secondary" gutterBottom>
+            Нет данных о расходах
+          </Typography>
+          <Button
+            variant="outlined"
+            startIcon={<AddIcon />}
+            onClick={() => setOpenAddDialog(true)}
+            sx={{ mt: 2 }}
+          >
+            Добавить расход
+          </Button>
+        </Paper>
+      );
+    }
+    
+    return (
+      <Box>
+        {/* Панель поиска и фильтрации */}
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          mb: 2,
+          mt: 1
+        }}>
+          <TextField
+            placeholder="Поиск по описанию..."
+            size="small"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            InputProps={{
+              startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />,
+              sx: { borderRadius: 2 }
+            }}
+            sx={{ mr: 1, flexGrow: 1 }}
+          />
+          
+          <IconButton 
+            onClick={handleOpenFilter}
+            color={isFilterActive ? "primary" : "default"}
+            sx={{ 
+              borderRadius: 2,
+              bgcolor: isFilterActive ? muiAlpha(theme.palette.primary.main, 0.1) : 'transparent'
+            }}
+          >
+            <Badge 
+              color="primary" 
+              variant="dot" 
+              invisible={!isFilterActive}
+            >
+              <FilterIcon />
+            </Badge>
+          </IconButton>
+          
+          <IconButton 
+            onClick={() => {
+              setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+            }}
+            sx={{ borderRadius: 2, ml: 1 }}
+          >
+            <SortIcon sx={{ 
+              transform: sortOrder === 'asc' ? 'rotate(0deg)' : 'rotate(180deg)',
+              transition: 'transform 0.2s'
+            }} />
+          </IconButton>
+          
+          <ToggleButtonGroup
+            value={sortBy}
+            exclusive
+            onChange={(e, newValue) => {
+              if (newValue) setSortBy(newValue);
+            }}
+            size="small"
+            sx={{ ml: 1 }}
+          >
+            <ToggleButton value="date" aria-label="sort by date">
+              <CalendarIcon fontSize="small" />
+            </ToggleButton>
+            <ToggleButton value="amount" aria-label="sort by amount">
+              <Typography variant="caption">₽</Typography>
+            </ToggleButton>
+            <ToggleButton value="category" aria-label="sort by category">
+              <WorkspacesIcon fontSize="small" />
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+        
+        {/* Статистика */}
+        <Box sx={{ mb: 3 }}>
+          <Button 
+            variant="outlined" 
+            color="primary"
+            startIcon={<ChartIcon />}
+            onClick={() => setViewMode('categories')}
+            fullWidth
+            sx={{ borderRadius: 2, py: 1 }}
+          >
+            Показать статистику по категориям
+          </Button>
+        </Box>
+        
+        {/* Список расходов */}
+        <AnimatePresence>
+          <motion.div
+            variants={containerVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+          >
+            {filteredExpenses.map((expense) => (
+              <motion.div
+                key={expense.id}
+                variants={itemVariants}
+                whileHover="hover"
+                whileTap="tap"
+                layout
+              >
+                <Card 
+                  sx={{ 
+                    mb: 2, 
+                    borderRadius: 3,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+                    overflow: 'visible'
+                  }}
+                >
+                  <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
+                        <Avatar
+                          sx={{
+                            bgcolor: muiAlpha(getGroupColor(expense.category || 'other'), 0.1),
+                            color: getGroupColor(expense.category || 'other'),
+                            width: 40,
+                            height: 40,
+                            mr: 1.5
+                          }}
+                        >
+                          {getCategoryIcon(expense.category || 'other')}
+                        </Avatar>
+                        
                         <Box>
-                          <Typography 
-                            variant="body2" 
-                            color="text.secondary" 
-                            sx={{ 
-                              mb: 0.5,
-                              fontWeight: 500,
-                              fontSize: '0.75rem',
-                              opacity: 0.8 
-                            }}
-                          >
-                            Разделено между:
+                          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
+                            {expense.description}
                           </Typography>
-                          <AvatarGroup 
-                            max={4}
-                            sx={{
-                              '& .MuiAvatar-root': {
-                                width: 28,
-                                height: 28,
-                                fontSize: '0.75rem',
-                                borderWidth: 1.5,
-                                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)'
-                              }
-                            }}
-                          >
-                            {(expense.splitBetween || []).map((member, index) => (
-                              <Avatar 
-                                key={index} 
-                                sx={{ 
-                                  bgcolor: `hsl(${210 + index * 30}, 70%, 60%)`,
-                                }}
-                              >
-                                {member && member.charAt(0).toUpperCase()}
-                              </Avatar>
-                            ))}
-                          </AvatarGroup>
-                        </Box>
-                        <Box>
-                          <Typography 
-                            variant="body2" 
-                            color="text.secondary" 
-                            sx={{ 
-                              mb: 0.5,
-                              fontWeight: 500,
-                              fontSize: '0.75rem',
-                              opacity: 0.8,
-                              textAlign: 'center'
-                            }}
-                          >
-                            Оплачено:
-                          </Typography>
-                          <AvatarGroup 
-                            max={3}
-                            sx={{
-                              '& .MuiAvatar-root': {
-                                width: 28,
-                                height: 28,
-                                fontSize: '0.75rem',
-                                borderWidth: 1.5,
-                              }
-                            }}
-                          >
-                            {(expense.paidBy || []).map((member, index) => (
-                              <Avatar 
-                                key={index} 
-                                sx={{ 
-                                  bgcolor: theme.palette.success.main,
-                                  boxShadow: `0 2px 6px ${muiAlpha(theme.palette.success.main, 0.3)}`
-                                }}
-                              >
-                                {member && member.charAt(0).toUpperCase()}
-                              </Avatar>
-                            ))}
-                          </AvatarGroup>
-                        </Box>
-                        <Box>
-                          <motion.div
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                          >
-                            <IconButton 
-                              color="error" 
-                              onClick={() => handleDeleteExpense(expense.id)}
+                          
+                          <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <Chip 
+                              label={categories.find(c => c.id === expense.category)?.name || 'Другое'} 
+                              size="small"
                               sx={{ 
-                                boxShadow: `0 2px 8px ${muiAlpha(theme.palette.error.main, 0.2)}`,
-                                backgroundColor: muiAlpha(theme.palette.error.main, 0.1),
-                                width: 36,
-                                height: 36,
-                                '&:hover': {
-                                  backgroundColor: muiAlpha(theme.palette.error.main, 0.15),
-                                }
+                                mr: 1, 
+                                mb: 0.5,
+                                bgcolor: muiAlpha(getGroupColor(expense.category || 'other'), 0.07),
+                                color: 'text.secondary',
+                                fontWeight: 500,
                               }}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </motion.div>
+                            />
+                            
+                            <Typography variant="caption" color="text.secondary" sx={{ mr: 1, mb: 0.5 }}>
+                              {expense.timestamp ? formatDate(expense.timestamp) : 'Нет даты'}
+                            </Typography>
+                            
+                            {expense.splitBetween && expense.splitBetween.length > 0 && (
+                              <Tooltip title="Разделено между">
+                                <Chip
+                                  icon={<PeopleIcon fontSize="small" />}
+                                  label={expense.splitBetween.length}
+                                  size="small"
+                                  sx={{ 
+                                    mb: 0.5,
+                                    bgcolor: 'rgba(0, 0, 0, 0.04)',
+                                  }}
+                                />
+                              </Tooltip>
+                            )}
+                            
+                            {expense.paidBy && expense.paidBy.length > 0 && (
+                              <Tooltip title="Оплачено">
+                                <Chip
+                                  icon={<PersonIcon fontSize="small" />}
+                                  label={expense.paidBy.length}
+                                  size="small"
+                                  sx={{ 
+                                    mb: 0.5,
+                                    ml: 0.5,
+                                    bgcolor: 'rgba(0, 0, 0, 0.04)',
+                                  }}
+                                />
+                              </Tooltip>
+                            )}
+                          </Box>
+                        </Box>
+                      </Box>
+                      
+                      <Box sx={{ textAlign: 'right' }}>
+                        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                          {expense.amount.toLocaleString()} ₽
+                        </Typography>
+                        
+                        <Box>
+                          <IconButton 
+                            size="small" 
+                            color="primary"
+                            onClick={() => handleOpenEditDialog(expense)}
+                            sx={{ mt: 0.5, mr: 0.5 }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                          
+                          <IconButton 
+                            size="small" 
+                            color="error"
+                            onClick={() => handleDeleteExpense(expense.id)}
+                            sx={{ mt: 0.5 }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
                         </Box>
                       </Box>
                     </Box>
@@ -842,473 +1180,1055 @@ const Expenses: React.FC = () => {
               </motion.div>
             ))}
           </motion.div>
-        )}
+        </AnimatePresence>
+      </Box>
+    );
+  };
 
-        {/* Debt Summary Section */}
-        {expenses.length > 0 && (
-          <motion.div
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-          >
-            <Card
-              component={motion.div}
-              variants={itemVariants}
-              whileHover="hover"
-              whileTap="tap"
-              sx={{
-                mb: 4,
-                overflow: 'visible',
-                borderRadius: '20px',
-                border: '1px solid',
-                borderColor: muiAlpha(theme.palette.divider, 0.1),
-                backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.9), rgba(245,250,255,0.85))',
-                backdropFilter: 'blur(8px)',
-                position: 'relative',
-              }}
-            >
-              <Box
-                sx={{
-                  position: 'absolute',
-                  top: -16,
-                  left: 24,
-                  backgroundColor: theme.palette.secondary.main,
-                  color: theme.palette.secondary.contrastText,
-                  borderRadius: '50%',
-                  width: 48,
-                  height: 48,
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                  border: '3px solid white',
-                }}
-              >
-                <AccountBalanceIcon />
-              </Box>
+  // Заменяем получение фиктивных данных на работу с базой данных
+  useEffect(() => {
+    // Получение регулярных расходов из базы данных
+    const fetchRecurringExpenses = async () => {
+      if (!selectedGroupId || !user?.id) return;
+      
+      try {
+        // Запрос к Firebase для получения регулярных расходов
+        const recurringExpensesRef = collection(db, 'recurringExpenses');
+        const q = query(
+          recurringExpensesRef,
+          where('groupId', '==', selectedGroupId),
+          orderBy('nextDate', 'asc')
+        );
+        
+        const querySnapshot = await getDocs(q);
+        
+        if (!querySnapshot.empty) {
+          // Преобразуем данные из Firestore, приводя timestamp к Date
+          const fetchedExpenses = querySnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              ...data,
+              nextDate: data.nextDate.toDate() // Преобразуем Timestamp в Date
+            } as RecurringExpense;
+          });
+          
+          setRecurringExpenses(fetchedExpenses);
+        } else {
+          // Проверяем, есть ли данные в localStorage для миграции
+          const localStorageKey = `recurringExpenses_${selectedGroupId}`;
+          const savedExpenses = localStorage.getItem(localStorageKey);
+          
+          if (savedExpenses) {
+            // Мигрируем данные из localStorage в Firebase
+            const parsedExpenses = JSON.parse(savedExpenses, (key, value) => {
+              if (key === 'nextDate') return new Date(value);
+              return value;
+            });
+            
+            // Добавляем записи в Firebase
+            const migratePromises = parsedExpenses.map(async (expense: any) => {
+              // Create a new object without the id
+              const { id, ...expenseDataWithoutId } = expense;
               
-              {/* Color stripe at the top */}
-              <Box 
-                sx={{ 
-                  height: '6px', 
-                  background: `linear-gradient(90deg, ${theme.palette.secondary.main}, ${muiAlpha(theme.palette.secondary.light, 0.7)})`,
-                  borderTopLeftRadius: '20px',
-                  borderTopRightRadius: '20px',
-                }}
-              />
+              const expenseData = {
+                ...expenseDataWithoutId,
+                createdBy: user.id,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+                nextDate: Timestamp.fromDate(new Date(expense.nextDate))
+              };
               
-              <CardContent sx={{ pt: 3.5, px: 3 }}>
-                <Typography 
-                  variant="h6" 
-                  gutterBottom
-                  sx={{ 
-                    fontWeight: 600, 
-                    ml: 4,
-                    color: theme.palette.text.primary,
-                  }}
-                >
-                  Сводка по долгам
-                </Typography>
-                
-                <Box sx={{ position: 'relative', mt: 1.5 }}>
-                  {(() => {
-                    try {
-                      if (groupId) {
-                        return (
-                          <DebtSummary 
-                            groupId={groupId} 
-                            expenses={expenses} 
-                            onPaymentCreated={fetchExpenses}
-                          />
-                        );
-                      } else {
-                        return (
-                          <Alert 
-                            severity="info" 
-                            sx={{ 
-                              mt: 2,
-                              borderRadius: '12px',
-                              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
-                            }}
-                          >
-                            Выберите группу для просмотра долгов
-                          </Alert>
-                        );
-                      }
-                    } catch (error) {
-                      console.error('Error rendering DebtSummary:', error);
-                      return (
-                        <Alert 
-                          severity="error" 
-                          sx={{ 
-                            mt: 2,
-                            borderRadius: '12px',
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
-                          }}
-                        >
-                          Ошибка при загрузке данных о долгах. Попробуйте обновить страницу.
-                        </Alert>
-                      );
-                    }
-                  })()}
-                </Box>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-      </motion.div>
-
-      {/* Add Expense Dialog */}
-      <Dialog 
-        open={openAddDialog} 
-        onClose={() => setOpenAddDialog(false)}
-        TransitionComponent={Slide}
-        sx={{ '& .MuiDialog-paper': { margin: '16px' } }}
-        PaperProps={{
-          sx: {
-            borderRadius: '24px',
-            maxWidth: '95vw',
-            width: '450px',
-            mx: 'auto',
-            overflow: 'hidden',
-            backgroundImage: 'linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(255,255,255,1))',
-            backdropFilter: 'blur(20px)',
-            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.15)',
-            border: '1px solid',
-            borderColor: muiAlpha('#fff', 0.3),
+              const docRef = await addDoc(collection(db, 'recurringExpenses'), expenseData);
+              return {
+                id: docRef.id,
+                ...expenseDataWithoutId,
+                nextDate: expense.nextDate
+              };
+            });
+            
+            const migratedExpenses = await Promise.all(migratePromises);
+            setRecurringExpenses(migratedExpenses);
+            
+            // Удаляем данные из localStorage после миграции
+            localStorage.removeItem(localStorageKey);
+          } else {
+            // Если данных нет ни в Firebase, ни в localStorage, устанавливаем пустой массив
+            setRecurringExpenses([]);
           }
+        }
+      } catch (error) {
+        console.error('Error fetching recurring expenses:', error);
+        toast.error('Ошибка при загрузке регулярных расходов');
+      }
+    };
+    
+    fetchRecurringExpenses();
+  }, [selectedGroupId, user?.id]);
+
+  // Обновляем также функцию handleAddRecurringExpense для сохранения в Firebase
+  const handleAddRecurringExpense = async () => {
+    // Validate required fields
+    if (!recurringFormData.description || !recurringFormData.amount) {
+      toast.error('Пожалуйста, заполните все обязательные поля');
+      return;
+    }
+
+    try {
+      const groupId = recurringFormData.groupId || selectedGroupId;
+      const userId = typeof user?.id === 'number' ? user.id.toString() : user?.id || '';
+      
+      // Создаем объект с данными для Firebase
+      const newExpenseData = {
+        description: recurringFormData.description,
+        amount: parseFloat(recurringFormData.amount),
+        category: recurringFormData.category,
+        frequency: recurringFormData.frequency as 'monthly',
+        nextDate: Timestamp.fromDate(recurringFormData.nextDate),
+        groupId: groupId,
+        active: true,
+        createdBy: userId,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      
+      // Добавляем в Firebase
+      const docRef = await addDoc(collection(db, 'recurringExpenses'), newExpenseData);
+      
+      // Создаем объект для локального состояния
+      const newExpense = {
+        id: docRef.id,
+        description: recurringFormData.description,
+        amount: parseFloat(recurringFormData.amount),
+        category: recurringFormData.category,
+        frequency: recurringFormData.frequency as 'monthly',
+        nextDate: recurringFormData.nextDate,
+        groupId: groupId,
+        active: true,
+        createdBy: userId
+      };
+      
+      // Добавляем в текущее состояние
+      setRecurringExpenses(prev => [...prev, newExpense as RecurringExpense]);
+      
+      // Создаем уведомление о новом регулярном платеже, если группа имеет участников
+      const selectedGroup = groups.find(g => g.id === groupId);
+      
+      // Если у группы есть другие участники, кроме создателя, отправляем им уведомления
+      if (selectedGroup && selectedGroup.members && selectedGroup.members.length > 1) {
+        // Создаем уведомления для всех участников группы кроме создателя
+        const otherMembers = selectedGroup.members.filter(memberId => memberId !== userId);
+        
+        // Используем новую функцию для уведомлений о регулярных расходах
+        try {
+          await createRecurringExpenseNotification(
+            groupId,
+            docRef.id,
+            newExpense.amount,
+            newExpense.description,
+            userId,
+            otherMembers
+          );
+        } catch (error) {
+          console.error('Error creating notifications:', error);
+          // Не прерываем выполнение, продолжаем даже при ошибке уведомлений
+        }
+      }
+      
+      // Use toast for notification
+      toast.success(`Регулярный платеж "${newExpense.description}" добавлен`);
+      
+      // Reset form data after successful addition
+      setRecurringFormData({
+        description: '',
+        amount: '',
+        category: 'food',
+        frequency: 'monthly',
+        nextDate: new Date(),
+        groupId: '',
+        active: true
+      });
+      setOpenRecurringDialog(false);
+    } catch (error) {
+      console.error('Error adding recurring expense:', error);
+      toast.error('Ошибка при добавлении регулярного платежа');
+    }
+  };
+
+  // Обновляем функцию handleToggleRecurringExpense для работы с Firebase
+  const handleToggleRecurringExpense = async (id: string) => {
+    const expense = recurringExpenses.find(exp => exp.id === id);
+    if (!expense) return;
+    
+    const newStatus = !expense.active;
+    
+    try {
+      // Обновляем запись в Firebase
+      const recurringExpenseRef = doc(db, 'recurringExpenses', id);
+      await updateDoc(recurringExpenseRef, {
+        active: newStatus,
+        updatedAt: serverTimestamp()
+      });
+      
+      // Обновляем состояние
+      const updatedExpenses = recurringExpenses.map(exp => 
+        exp.id === id ? { ...exp, active: newStatus } : exp
+      );
+      setRecurringExpenses(updatedExpenses);
+      
+      // Show toast notification
+      toast.success(`Регулярный платеж "${expense.description}" ${newStatus ? 'активирован' : 'деактивирован'}`);
+    } catch (error) {
+      console.error('Error updating recurring expense:', error);
+      toast.error('Ошибка при обновлении статуса платежа');
+    }
+  };
+
+  // Обновляем функцию удаления регулярного платежа для работы с Firebase
+  const handleDeleteRecurringExpense = async (id: string) => {
+    try {
+      // Находим удаляемый платеж для показа уведомления
+      const expense = recurringExpenses.find(exp => exp.id === id);
+      if (!expense) return;
+      
+      // Удаляем из Firebase
+      const recurringExpenseRef = doc(db, 'recurringExpenses', id);
+      await deleteDoc(recurringExpenseRef);
+      
+      // Удаляем из текущего состояния
+      const updatedExpenses = recurringExpenses.filter(exp => exp.id !== id);
+      setRecurringExpenses(updatedExpenses);
+      
+      // Показываем уведомление об успешном удалении
+      toast.success(`Регулярный платеж "${expense.description}" удален`);
+      
+    } catch (error) {
+      console.error('Error deleting recurring expense:', error);
+      toast.error('Ошибка при удалении регулярного платежа');
+    }
+  };
+
+  // Фильтрация и сортировка списка расходов
+  const getFilteredAndSortedExpenses = () => {
+    let filteredExpenses = [...expenses] as ExpenseWithTimestamp[];
+    
+    // Применяем поиск
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filteredExpenses = filteredExpenses.filter(exp => 
+        exp.description.toLowerCase().includes(query)
+      );
+    }
+    
+    // Применяем фильтры
+    if (isFilterActive) {
+      if (filters.minAmount) {
+        filteredExpenses = filteredExpenses.filter(exp => 
+          exp.amount >= parseFloat(filters.minAmount)
+        );
+      }
+      
+      if (filters.maxAmount) {
+        filteredExpenses = filteredExpenses.filter(exp => 
+          exp.amount <= parseFloat(filters.maxAmount)
+        );
+      }
+      
+      if (filters.categories.length > 0) {
+        filteredExpenses = filteredExpenses.filter(exp => 
+          filters.categories.includes(exp.category || 'other')
+        );
+      }
+      
+      if (filters.dateFrom) {
+        filteredExpenses = filteredExpenses.filter(exp => 
+          exp.timestamp?.toDate() >= (filters.dateFrom as Date)
+        );
+      }
+      
+      if (filters.dateTo) {
+        filteredExpenses = filteredExpenses.filter(exp => 
+          exp.timestamp?.toDate() <= (filters.dateTo as Date)
+        );
+      }
+    }
+    
+    // Применяем сортировку
+    filteredExpenses.sort((a, b) => {
+      if (sortBy === 'date') {
+        return sortOrder === 'asc' 
+          ? a.timestamp?.toDate().getTime() - b.timestamp?.toDate().getTime()
+          : b.timestamp?.toDate().getTime() - a.timestamp?.toDate().getTime();
+      } else if (sortBy === 'amount') {
+        return sortOrder === 'asc' ? a.amount - b.amount : b.amount - a.amount;
+      } else if (sortBy === 'category') {
+        const catA = a.category || 'other';
+        const catB = b.category || 'other';
+        return sortOrder === 'asc' 
+          ? catA.localeCompare(catB)
+          : catB.localeCompare(catA);
+      }
+      return 0;
+    });
+    
+    return filteredExpenses;
+  };
+
+  // Get frequency text
+  const getFrequencyText = (frequency: string) => {
+    switch (frequency) {
+      case 'daily': return 'Ежедневно';
+      case 'weekly': return 'Еженедельно';
+      case 'monthly': return 'Ежемесячно';
+      case 'yearly': return 'Ежегодно';
+      default: return 'Регулярно';
+    }
+  };
+
+  // Open filter popover
+  const handleOpenFilter = (event: React.MouseEvent<HTMLElement>) => {
+    setFilterAnchorEl(event.currentTarget);
+  };
+
+  // Close filter popover
+  const handleCloseFilter = () => {
+    setFilterAnchorEl(null);
+  };
+
+  // Apply filters
+  const handleApplyFilters = () => {
+    setIsFilterActive(true);
+    handleCloseFilter();
+  };
+
+  // Reset filters
+  const handleResetFilters = () => {
+    setFilters({
+      minAmount: '',
+      maxAmount: '',
+      categories: [],
+      dateFrom: null,
+      dateTo: null,
+    });
+    setIsFilterActive(false);
+    handleCloseFilter();
+  };
+
+  // Filter popover
+  const renderFilterPopover = () => {
+    const open = Boolean(filterAnchorEl);
+    const id = open ? 'filter-popover' : undefined;
+    
+    return (
+      <Popover
+        id={id}
+        open={open}
+        anchorEl={filterAnchorEl}
+        onClose={handleCloseFilter}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'center',
         }}
-        BackdropProps={{
-          sx: {
-            backdropFilter: 'blur(5px)',
-            backgroundColor: 'rgba(0, 0, 0, 0.4)',
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'center',
+        }}
+        PaperProps={{
+          sx: { 
+            width: 320, 
+            p: 2,
+            borderRadius: 2,
+            mt: 1
           }
         }}
       >
-        {/* Blue Gradient Top Bar */}
-        <Box sx={{ 
-          height: '8px', 
-          background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${muiAlpha(theme.palette.primary.light, 0.7)})`,
-        }} />
+        <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>Фильтры</Typography>
         
-        {/* Modal Title with Plus Icon */}
-        <DialogTitle sx={{ 
-          fontSize: '1.25rem', 
-          fontWeight: 600, 
-          textAlign: 'center',
-          pt: 3,
-          pb: 1,
-          color: theme.palette.primary.main,
-        }}>
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 1 }}>
-            <Avatar
-              sx={{
-                bgcolor: theme.palette.primary.main,
-                width: 48,
-                height: 48,
-                boxShadow: '0 4px 12px rgba(0, 136, 204, 0.3)',
-              }}
-            >
-              <AddIcon sx={{ color: '#fff', fontSize: '1.8rem' }} />
-            </Avatar>
-          </Box>
-          Добавить расход
-        </DialogTitle>
-        
-        {/* Form Content */}
-        <DialogContent sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
-          <Grid container spacing={2.5}>
-            {/* Group selection dropdown */}
-            <Grid item xs={12}>
-              <FormControl fullWidth variant="outlined">
-                <InputLabel>Группа</InputLabel>
-                <Select
-                  value={selectedGroupId}
-                  onChange={(e) => setSelectedGroupId(e.target.value)}
-                  label="Группа"
-                  startAdornment={
-                    <Box sx={{ mr: 1, display: 'flex', alignItems: 'center' }}>
-                      <GroupIcon 
-                        sx={{ 
-                          color: theme.palette.primary.main,
-                          fontSize: '1.25rem'
-                        }} 
-                      />
-                    </Box>
-                  }
-                  disabled={loadingGroups}
-                  sx={{ 
-                    '& .MuiSelect-select': { 
-                      display: 'flex',
-                      alignItems: 'center',
-                      pl: 0.5,
-                    },
-                    borderRadius: '12px', 
-                    '& fieldset': {
-                      transition: 'border-color 0.2s ease',
-                      borderColor: muiAlpha(theme.palette.divider, 0.3),
-                    },
-                    '&:hover fieldset': {
-                      borderColor: theme.palette.primary.main,
-                    },
-                  }}
-                  MenuProps={{
-                    PaperProps: {
-                      sx: {
-                        borderRadius: '12px',
-                        mt: 1,
-                        boxShadow: '0 8px 20px rgba(0, 0, 0, 0.15)',
-                      }
-                    }
-                  }}
-                >
-                  {groups.length === 0 ? (
-                    <MenuItem value="" disabled>
-                      Нет доступных групп
-                    </MenuItem>
-                  ) : (
-                    groups.map((group) => (
-                      <MenuItem 
-                        key={group.id} 
-                        value={group.id}
-                        sx={{ 
-                          borderRadius: '8px',
-                          my: 0.5,
-                          mx: 0.5,
-                          transition: 'all 0.2s ease',
-                          '&:hover': {
-                            backgroundColor: muiAlpha(theme.palette.primary.main, 0.1),
-                          },
-                          '&.Mui-selected': {
-                            backgroundColor: muiAlpha(theme.palette.primary.main, 0.1),
-                            '&:hover': {
-                              backgroundColor: muiAlpha(theme.palette.primary.main, 0.15),
-                            }
-                          }
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <Avatar
-                            sx={{
-                              width: 28,
-                              height: 28,
-                              mr: 1.5,
-                              fontSize: '0.75rem',
-                              bgcolor: getGroupColor(group.name),
-                            }}
-                          >
-                            {group.name.charAt(0).toUpperCase()}
-                          </Avatar>
-                          {group.name}
-                        </Box>
-                      </MenuItem>
-                    ))
-                  )}
-                </Select>
-              </FormControl>
-            </Grid>
-            
-            <Grid item xs={12}>
-              <TextField
-                autoFocus
-                label="Сумма"
-                type="number"
-                fullWidth
-                variant="outlined"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <Box component="span" sx={{ color: theme.palette.primary.main, mr: 1, fontWeight: 500 }}>
-                      ₽
-                    </Box>
-                  ),
-                  sx: {
-                    borderRadius: '12px',
-                  }
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    '& fieldset': {
-                      borderColor: muiAlpha(theme.palette.divider, 0.3),
-                    },
-                    '&:hover fieldset': {
-                      borderColor: theme.palette.primary.main,
-                    },
-                  }
-                }}
-              />
-            </Grid>
-            
-            <Grid item xs={12}>
-              <TextField
-                label="Описание"
-                type="text"
-                fullWidth
-                variant="outlined"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                InputProps={{
-                  sx: {
-                    borderRadius: '12px',
-                  }
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    '& fieldset': {
-                      borderColor: muiAlpha(theme.palette.divider, 0.3),
-                    },
-                    '&:hover fieldset': {
-                      borderColor: theme.palette.primary.main,
-                    },
-                  }
-                }}
-              />
-            </Grid>
-            
-            <Grid item xs={12}>
-              <FormControl fullWidth variant="outlined">
-                <InputLabel>Категория</InputLabel>
-                <Select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  label="Категория"
-                  sx={{ 
-                    borderRadius: '12px',
-                    '& .MuiSelect-select': { 
-                      display: 'flex',
-                      alignItems: 'center' 
-                    },
-                    '& fieldset': {
-                      borderColor: muiAlpha(theme.palette.divider, 0.3),
-                    },
-                    '&:hover fieldset': {
-                      borderColor: theme.palette.primary.main,
-                    },
-                  }}
-                  MenuProps={{
-                    PaperProps: {
-                      sx: {
-                        borderRadius: '12px',
-                        mt: 1,
-                        boxShadow: '0 8px 20px rgba(0, 0, 0, 0.15)',
-                      }
-                    }
-                  }}
-                >
-                  {categories.map((cat) => (
-                    <MenuItem 
-                      key={cat.id} 
-                      value={cat.id}
-                      sx={{ 
-                        borderRadius: '8px',
-                        my: 0.5,
-                        mx: 0.5,
-                        transition: 'all 0.2s ease',
-                        '&:hover': {
-                          backgroundColor: muiAlpha(theme.palette.primary.main, 0.1),
-                        },
-                        '&.Mui-selected': {
-                          backgroundColor: muiAlpha(theme.palette.primary.main, 0.1),
-                          '&:hover': {
-                            backgroundColor: muiAlpha(theme.palette.primary.main, 0.15),
-                          }
-                        }
-                      }}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <Box 
-                          sx={{ 
-                            mr: 1.5, 
-                            display: 'flex', 
-                            alignItems: 'center',
-                            color: theme.palette.primary.main,
-                          }}
-                        >
-                          {cat.icon}
-                        </Box>
-                        <Typography>{cat.name}</Typography>
-                      </Box>
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
+        <Grid container spacing={2}>
+          <Grid item xs={6}>
+            <TextField
+              fullWidth
+              label="Мин. сумма"
+              size="small"
+              type="number"
+              value={filters.minAmount}
+              onChange={(e) => setFilters(prev => ({ ...prev, minAmount: e.target.value }))}
+            />
           </Grid>
-        </DialogContent>
+          <Grid item xs={6}>
+            <TextField
+              fullWidth
+              label="Макс. сумма"
+              size="small"
+              type="number"
+              value={filters.maxAmount}
+              onChange={(e) => setFilters(prev => ({ ...prev, maxAmount: e.target.value }))}
+            />
+          </Grid>
+        </Grid>
         
-        {/* Footer with action buttons */}
-        <Box sx={{
-          display: 'flex',
-          justifyContent: 'center',
-          gap: 2,
-          px: 3,
-          py: 3,
-          borderTop: '1px solid',
-          borderColor: muiAlpha(theme.palette.divider, 0.1),
-        }}>
-          <Button 
-            onClick={() => setOpenAddDialog(false)}
-            variant="outlined"
-            sx={{ 
-              borderRadius: '12px',
-              minWidth: '100px',
-              fontWeight: 500,
-              px: 3,
-              py: 1,
-            }}
+        <FormControl fullWidth sx={{ mt: 2 }}>
+          <InputLabel size="small">Категории</InputLabel>
+          <Select
+            multiple
+            size="small"
+            value={filters.categories}
+            label="Категории"
+            onChange={(e) => setFilters(prev => ({ 
+              ...prev, 
+              categories: typeof e.target.value === 'string' 
+                ? e.target.value.split(',') 
+                : e.target.value 
+            }))}
+            renderValue={(selected) => (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {selected.map((value) => {
+                  const category = categories.find(c => c.id === value);
+                  return (
+                    <Chip 
+                      key={value} 
+                      label={category?.name} 
+                      size="small"
+                      sx={{ 
+                        bgcolor: muiAlpha(getGroupColor(value), 0.1),
+                        color: getGroupColor(value),
+                      }}
+                    />
+                  );
+                })}
+              </Box>
+            )}
           >
-            Отмена
+            {categories.map((category) => (
+              <MenuItem key={category.id} value={category.id}>
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Avatar 
+                    sx={{ 
+                      width: 24, 
+                      height: 24, 
+                      mr: 1,
+                      bgcolor: muiAlpha(category.color, 0.1),
+                      color: category.color
+                    }}
+                  >
+                    {category.icon}
+                  </Avatar>
+                  {category.name}
+                </Box>
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        
+        <Grid container spacing={2} sx={{ mt: 1 }}>
+          <Grid item xs={6}>
+            <TextField
+              fullWidth
+              label="Дата с"
+              size="small"
+              type="date"
+              value={filters.dateFrom ? filters.dateFrom.toISOString().split('T')[0] : ''}
+              onChange={(e) => setFilters(prev => ({ 
+                ...prev, 
+                dateFrom: e.target.value ? new Date(e.target.value) : null 
+              }))}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Grid>
+          <Grid item xs={6}>
+            <TextField
+              fullWidth
+              label="Дата по"
+              size="small"
+              type="date"
+              value={filters.dateTo ? filters.dateTo.toISOString().split('T')[0] : ''}
+              onChange={(e) => setFilters(prev => ({ 
+                ...prev, 
+                dateTo: e.target.value ? new Date(e.target.value) : null 
+              }))}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Grid>
+        </Grid>
+        
+        <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+          <Button onClick={handleResetFilters} size="small">
+            Сбросить
           </Button>
           <Button 
-            onClick={() => {
-              console.log('Add expense button clicked');
-              handleAddExpense();
-            }}
             variant="contained" 
-            disabled={loading || !selectedGroupId || !amount}
-            sx={{ 
-              borderRadius: '12px',
-              minWidth: '120px',
-              fontWeight: 500,
-              bgcolor: theme.palette.primary.main,
-              '&:hover': {
-                bgcolor: theme.palette.primary.dark,
-              },
-              boxShadow: '0 4px 12px rgba(0, 136, 204, 0.3)',
-              px: 3,
-              py: 1,
-            }}
+            onClick={handleApplyFilters}
+            size="small"
           >
-            {loading ? (
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <Box 
-                  component="span" 
-                  sx={{ 
-                    display: 'inline-block', 
-                    width: 18, 
-                    height: 18, 
-                    mr: 1,
-                    borderRadius: '50%',
-                    borderTop: '2px solid white',
-                    borderRight: '2px solid transparent',
-                    animation: 'spin 0.8s linear infinite',
-                    '@keyframes spin': {
-                      '0%': { transform: 'rotate(0deg)' },
-                      '100%': { transform: 'rotate(360deg)' }
-                    }
-                  }} 
-                />
-                Добавление...
-              </Box>
-            ) : (
-              'Добавить'
-            )}
+            Применить
           </Button>
         </Box>
-      </Dialog>
-    </Box>
+      </Popover>
+    );
+  };
+
+  // Render group selector
+  const renderGroupSelector = () => {
+    if (loadingGroups) {
+      return <CircularProgress size={24} sx={{ display: 'block', mx: 'auto' }} />;
+    }
+    
+    if (groups.length === 0) {
+      return (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          У вас нет доступных групп. Создайте группу для отслеживания расходов.
+        </Alert>
+      );
+    }
+    
+    return (
+      <FormControl fullWidth variant="outlined" sx={{ mb: 2 }}>
+        <InputLabel>Выберите группу</InputLabel>
+        <Select
+          value={selectedGroupId}
+          onChange={(e) => {
+            setSelectedGroupId(e.target.value);
+            // Fetch expenses for this group
+            if (e.target.value) {
+              fetchExpenses();
+            }
+          }}
+          label="Выберите группу"
+        >
+          {groups.map((group) => (
+            <MenuItem key={group.id} value={group.id}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Avatar 
+                  sx={{ 
+                    width: 24, 
+                    height: 24, 
+                    bgcolor: muiAlpha(getGroupColor(group.name), 0.2),
+                    color: getGroupColor(group.name),
+                    fontSize: '0.8rem',
+                    mr: 1
+                  }}
+                >
+                  {group.name.charAt(0).toUpperCase()}
+                </Avatar>
+                {group.name}
+              </Box>
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+    );
+  };
+
+  // Восстанавливаем функцию для отображения сравнения периодов
+  const renderPeriodComparison = () => {
+    if (!periodComparison) return null;
+    
+    return (
+      <Paper 
+        sx={{ 
+          p: 2, 
+          mb: 3, 
+          borderRadius: 3,
+          bgcolor: muiAlpha(theme.palette.background.paper, 0.6),
+          backdropFilter: 'blur(10px)',
+          border: `1px solid ${theme.palette.divider}`
+        }}
+      >
+        <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600, display: 'flex', alignItems: 'center' }}>
+          <CompareIcon sx={{ mr: 1 }} />
+          Сравнение с предыдущим периодом
+        </Typography>
+        
+        <Grid container spacing={2}>
+          <Grid item xs={6}>
+            <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: muiAlpha(theme.palette.primary.main, 0.05) }}>
+              <Typography variant="caption" color="text.secondary">
+                Текущий {selectedPeriod === 'week' ? 'неделя' : selectedPeriod === 'month' ? 'месяц' : 'год'}
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                {periodComparison.currentPeriod.toLocaleString()} ₽
+              </Typography>
+            </Box>
+          </Grid>
+          <Grid item xs={6}>
+            <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: muiAlpha(theme.palette.primary.main, 0.05) }}>
+              <Typography variant="caption" color="text.secondary">
+                Предыдущий {selectedPeriod === 'week' ? 'неделя' : selectedPeriod === 'month' ? 'месяц' : 'год'}
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                {periodComparison.previousPeriod.toLocaleString()} ₽
+              </Typography>
+            </Box>
+          </Grid>
+        </Grid>
+        
+        <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Chip
+            icon={
+              <ArrowForwardIcon 
+                fontSize="small" 
+                sx={{ 
+                  transform: periodComparison.change >= 0 ? 'rotate(45deg)' : 'rotate(-45deg)',
+                  color: 'inherit',
+                }} 
+              />
+            }
+            label={`${periodComparison.change >= 0 ? '+' : ''}${periodComparison.change.toLocaleString()} ₽ (${periodComparison.changePercentage >= 0 ? '+' : ''}${periodComparison.changePercentage.toFixed(1)}%)`}
+            sx={{
+              bgcolor: periodComparison.change >= 0 
+                ? muiAlpha(theme.palette.error.main, 0.1) 
+                : muiAlpha(theme.palette.success.main, 0.1),
+              color: periodComparison.change >= 0 
+                ? theme.palette.error.main 
+                : theme.palette.success.main,
+              fontWeight: 500,
+            }}
+          />
+        </Box>
+        
+        <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
+          <ToggleButtonGroup
+            value={selectedPeriod}
+            exclusive
+            onChange={(e, newValue) => newValue && setSelectedPeriod(newValue)}
+            size="small"
+          >
+            <ToggleButton value="week" size="small">
+              <Typography variant="caption">Неделя</Typography>
+            </ToggleButton>
+            <ToggleButton value="month" size="small">
+              <Typography variant="caption">Месяц</Typography>
+            </ToggleButton>
+            <ToggleButton value="year" size="small">
+              <Typography variant="caption">Год</Typography>
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+      </Paper>
+    );
+  };
+
+  // Восстанавливаем функцию для отображения статистики по категориям
+  const renderCategoryStats = () => {
+    if (categoryStats.length === 0) {
+      return (
+        <Box sx={{ py: 4, textAlign: 'center' }}>
+          <Typography color="text.secondary" gutterBottom>
+            Нет данных для отображения статистики
+          </Typography>
+          <Button
+            variant="outlined"
+            startIcon={<AddIcon />}
+            onClick={() => setOpenAddDialog(true)}
+            sx={{ mt: 2 }}
+          >
+            Добавить расход
+          </Button>
+        </Box>
+      );
+    }
+    
+    return (
+      <Box>
+        <Paper 
+          sx={{ 
+            p: 2, 
+            mb: 3, 
+            borderRadius: 3,
+            bgcolor: muiAlpha(theme.palette.background.paper, 0.6),
+          }}
+        >
+          <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+            Распределение по категориям
+          </Typography>
+          
+          <Box sx={{ mb: 3 }}>
+            {categoryStats.map((category) => (
+              <Box key={category.id} sx={{ mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                  <Avatar
+                    sx={{
+                      width: 28,
+                      height: 28,
+                      bgcolor: muiAlpha(category.color, 0.1),
+                      color: category.color,
+                      mr: 1.5
+                    }}
+                  >
+                    {category.icon}
+                  </Avatar>
+                  <Typography variant="body2" sx={{ fontWeight: 500, flex: 1 }}>
+                    {category.name}
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {category.amount.toLocaleString()} ₽
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ ml: 1, width: 40, textAlign: 'right' }}>
+                    {category.percentage.toFixed(1)}%
+                  </Typography>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={category.percentage}
+                  sx={{
+                    height: 8,
+                    borderRadius: 4,
+                    bgcolor: muiAlpha(category.color, 0.1),
+                    '& .MuiLinearProgress-bar': {
+                      bgcolor: category.color,
+                    }
+                  }}
+                />
+              </Box>
+            ))}
+          </Box>
+          
+          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+            <Button
+              variant="outlined"
+              onClick={() => setViewMode('list')}
+              startIcon={<ViewListIcon />}
+              size="small"
+            >
+              Показать список расходов
+            </Button>
+          </Box>
+        </Paper>
+      </Box>
+    );
+  };
+
+  // Восстанавливаем функцию для отображения регулярных расходов
+  const renderRecurringExpenses = () => {
+    if (recurringExpenses.length === 0) {
+      return (
+        <Box sx={{ py: 2, textAlign: 'center' }}>
+          <Typography color="text.secondary">
+            У вас нет регулярных расходов
+          </Typography>
+          <Button
+            variant="outlined"
+            startIcon={<AddIcon />}
+            onClick={() => setOpenRecurringDialog(true)}
+            sx={{ mt: 2 }}
+          >
+            Добавить
+          </Button>
+        </Box>
+      );
+    }
+    
+    // Фильтруем расходы только для выбранной группы
+    const filteredRecurringExpenses = recurringExpenses.filter(
+      expense => expense.groupId === selectedGroupId
+    );
+    
+    if (filteredRecurringExpenses.length === 0) {
+      return (
+        <Box sx={{ py: 2, textAlign: 'center' }}>
+          <Typography color="text.secondary">
+            В выбранной группе нет регулярных расходов
+          </Typography>
+          <Button
+            variant="outlined"
+            startIcon={<AddIcon />}
+            onClick={() => setOpenRecurringDialog(true)}
+            sx={{ mt: 2 }}
+          >
+            Добавить
+          </Button>
+        </Box>
+      );
+    }
+    
+    return (
+      <List>
+        {filteredRecurringExpenses.map((expense) => (
+          <React.Fragment key={expense.id}>
+            <ListItem>
+              <Box sx={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Box sx={{ flex: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <Avatar
+                      sx={{
+                        width: 32,
+                        height: 32,
+                        mr: 1.5,
+                        bgcolor: muiAlpha(getGroupColor(expense.category), 0.2),
+                        color: getGroupColor(expense.category)
+                      }}
+                    >
+                      {getCategoryIcon(expense.category)}
+                    </Avatar>
+                    <Typography variant="subtitle2">
+                      {expense.description}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ pl: 5, pt: 0.5, display: 'flex', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <Typography variant="body2" component="span">
+                      {expense.amount.toLocaleString()} ₽
+                    </Typography>
+                    <Typography variant="caption" component="span" sx={{ mx: 1, color: 'text.secondary' }}>•</Typography>
+                    <Typography variant="caption" component="span" color="text.secondary">
+                      {getFrequencyText(expense.frequency)}
+                    </Typography>
+                    <Typography variant="caption" component="span" sx={{ mx: 1, color: 'text.secondary' }}>•</Typography>
+                    <Typography variant="caption" component="span" color="text.secondary">
+                      Следующий платеж: {expense.nextDate.toLocaleDateString()}
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch 
+                        size="small"
+                        checked={expense.active}
+                        onChange={() => handleToggleRecurringExpense(expense.id)}
+                      />
+                    }
+                    label=""
+                  />
+                  <IconButton 
+                    edge="end" 
+                    aria-label="delete"
+                    size="small"
+                    color="error"
+                    onClick={() => handleDeleteRecurringExpense(expense.id)}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              </Box>
+            </ListItem>
+            <Divider sx={{ mb: 1 }} />
+          </React.Fragment>
+        ))}
+      </List>
+    );
+  };
+
+  // Функция для проверки и уведомления о скорых платежах
+  const checkUpcomingPayments = () => {
+    // Проверяем только если есть регулярные платежи и пользователь авторизован
+    if (recurringExpenses.length === 0 || !user?.id) return;
+    
+    // Получаем сегодняшнюю дату
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Получаем дату через 3 дня
+    const threeDaysFromNow = new Date();
+    threeDaysFromNow.setDate(today.getDate() + 3);
+    threeDaysFromNow.setHours(23, 59, 59, 999);
+    
+    // Фильтруем платежи, которые нужно оплатить в ближайшие 3 дня
+    const upcomingPayments = recurringExpenses.filter(expense => {
+      if (!expense.active) return false;
+      
+      const nextDate = new Date(expense.nextDate);
+      nextDate.setHours(0, 0, 0, 0);
+      
+      return nextDate >= today && nextDate <= threeDaysFromNow;
+    });
+    
+    // Если есть предстоящие платежи, показываем уведомление
+    if (upcomingPayments.length > 0) {
+      const paymentsList = upcomingPayments.map((payment: RecurringExpense) => 
+        `${payment.description}: ${payment.amount.toLocaleString()} ₽ (${payment.nextDate.toLocaleDateString()})`
+      ).join('\n');
+      
+      // Показываем уведомление о предстоящих платежах
+      setTimeout(() => {
+        toast.success(
+          <div>
+            <Typography variant="subtitle2">У вас скоро предстоят платежи:</Typography>
+            <ul style={{ marginTop: 8, paddingLeft: 16 }}>
+              {upcomingPayments.map((payment: RecurringExpense) => (
+                <li key={payment.id} style={{ marginBottom: 4 }}>
+                  <strong>{payment.description}</strong>: {payment.amount.toLocaleString()} ₽ 
+                  <span style={{ fontSize: '0.85rem', color: '#666', marginLeft: 4 }}>
+                    ({payment.nextDate.toLocaleDateString()})
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>,
+          { duration: 10000 }
+        );
+      }, 1000);
+    }
+  };
+  
+  // Проверяем предстоящие платежи при загрузке компонента
+  useEffect(() => {
+    checkUpcomingPayments();
+  }, [recurringExpenses]);
+
+  return (
+    <Container maxWidth="md" sx={{ py: 4 }}>
+      <Header title="Расходы" />
+      
+      {/* Добавляем селектор групп для фильтрации расходов */}
+      {renderGroupSelector()}
+      
+      {/* Tabs для переключения между различными представлениями */}
+      <Tabs
+        value={activeTab}
+        onChange={(e, newValue) => setActiveTab(newValue)}
+        variant="fullWidth"
+        sx={{ mb: 3 }}
+      >
+        <Tab label="Обзор" />
+        <Tab label="Регулярные" />
+      </Tabs>
+      
+      {/* Основной контент - зависит от выбранной вкладки */}
+      {activeTab === 0 ? (
+        // Вкладка "Обзор"
+        <Box>
+          {/* Фильтры и сортировка */}
+          <Paper 
+            sx={{ 
+              p: 2, 
+              mb: 3, 
+              borderRadius: 3,
+              bgcolor: muiAlpha(theme.palette.background.paper, 0.6),
+              backdropFilter: 'blur(10px)',
+              border: `1px solid ${theme.palette.divider}`
+            }}
+          >
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center' }}>
+                <RepeatIcon sx={{ mr: 1 }} />
+                Сравнение с предыдущим периодом
+              </Typography>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => setOpenRecurringDialog(true)}
+              >
+                Добавить регулярный расход
+              </Button>
+            </Box>
+            
+            {renderPeriodComparison()}
+          </Paper>
+          
+          {/* Интерактивный график для категорий */}
+          {renderInteractiveChart()}
+          
+          {/* Содержимое в зависимости от режима просмотра */}
+          {viewMode === 'categories' ? (
+            // Статистика
+            renderCategoryStats()
+          ) : (
+            // Список расходов
+            renderExpenses()
+          )}
+          
+          {/* Диалог с деталями категории */}
+          {renderCategoryDetails()}
+        </Box>
+      ) : (
+        // Вкладка "Регулярные"
+        <Box>
+          {/* Карточка с информацией о регулярных расходах */}
+          <Paper 
+            sx={{ 
+              p: 2, 
+              mb: 3,
+              borderRadius: 3,
+              bgcolor: muiAlpha(theme.palette.background.paper, 0.6),
+              backdropFilter: 'blur(10px)',
+            }}
+          >
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center' }}>
+                <RepeatIcon sx={{ mr: 1 }} />
+                Регулярные расходы
+              </Typography>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => setOpenRecurringDialog(true)}
+              >
+                Добавить
+              </Button>
+            </Box>
+            
+            {renderRecurringExpenses()}
+            
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+              <Button
+                variant="outlined"
+                startIcon={<NotificationsIcon />}
+                onClick={() => {
+                  toast.success('Уведомления о регулярных платежах включены');
+                  checkUpcomingPayments();
+                }}
+              >
+                Включить уведомления о платежах
+              </Button>
+            </Box>
+          </Paper>
+        </Box>
+      )}
+      
+      {/* FAB для добавления нового расхода (только на вкладке "Обзор") */}
+      {activeTab === 0 && (
+        <Fab 
+          color="primary" 
+          aria-label="add"
+          onClick={() => setOpenAddDialog(true)}
+          sx={{
+            position: 'fixed',
+            bottom: 80,
+            right: 24,
+          }}
+        >
+          <AddIcon />
+        </Fab>
+      )}
+      
+      {/* Диалоги */}
+      <AddExpenseDialog 
+        open={openAddDialog} 
+        onClose={() => setOpenAddDialog(false)}
+        onSubmit={handleAddExpense}
+        loading={loading}
+        groups={groups}
+        selectedGroupId={selectedGroupId}
+        currentUserId={user?.id?.toString()}
+        groupMembers={groupMembers}
+      />
+      
+      <EditExpenseDialog
+        open={openEditDialog}
+        onClose={() => {
+          setOpenEditDialog(false);
+          setSelectedExpense(null);
+        }}
+        onSubmit={handleEditExpense}
+        loading={loading}
+        expense={selectedExpense}
+        groupMembers={groupMembers}
+        currentUserId={user?.id?.toString()}
+      />
+      
+      <RecurringExpenseDialog 
+        open={openRecurringDialog}
+        onClose={() => setOpenRecurringDialog(false)}
+        onSubmit={(formData) => {
+          setRecurringFormData(formData);
+          handleAddRecurringExpense();
+        }}
+        groups={groups}
+        selectedGroupId={selectedGroupId}
+      />
+    </Container>
   );
 };
 

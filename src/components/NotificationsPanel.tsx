@@ -234,14 +234,16 @@ const NotificationsPanel: React.FC = () => {
             <Typography variant="h6">Уведомления</Typography>
             
             <Tooltip title="Отметить все как прочитанные">
-              <IconButton
-                size="small"
-                onClick={handleMarkAllAsRead}
-                disabled={unreadCount === 0 || loading}
-                sx={{ color: 'white' }}
-              >
-                <MarkReadIcon />
-              </IconButton>
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={handleMarkAllAsRead}
+                  disabled={unreadCount === 0 || loading}
+                  sx={{ color: 'white' }}
+                >
+                  <MarkReadIcon />
+                </IconButton>
+              </span>
             </Tooltip>
           </Box>
         </Box>

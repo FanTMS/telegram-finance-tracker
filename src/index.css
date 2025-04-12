@@ -33,6 +33,11 @@
 
 html {
   height: -webkit-fill-available;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  position: fixed;
+  width: 100%;
+  height: 100%;
 }
 
 body {
@@ -47,6 +52,10 @@ body {
   min-height: -webkit-fill-available;
   overscroll-behavior: none;
   overflow-x: hidden;
+  touch-action: manipulation;
+  position: fixed;
+  width: 100%;
+  height: 100%;
 }
 
 #root {
@@ -54,6 +63,12 @@ body {
   min-height: -webkit-fill-available;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Telegram-specific Safari fixes */
@@ -135,4 +150,26 @@ input, button, a, select {
   html, body {
     font-size: 15px;
   }
+}
+
+/* Prevent pull-to-refresh and bouncing on iOS */
+@supports (-webkit-touch-callout: none) {
+  body, #root {
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
+/* Telegram WebApp specific fixes */
+.telegram-app {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  touch-action: none;
 } 

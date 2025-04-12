@@ -59,6 +59,19 @@ export interface Income {
   category: string;
   description: string;
   date: Timestamp;
+  groupId?: string; // Optional field for group income
+}
+
+export interface RegularIncome {
+  id: string;
+  userId: string;
+  description: string;
+  amount: number;
+  category: string;
+  frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  nextDate: Timestamp;
+  active: boolean;
+  groupId?: string; // Optional field for group income
 }
 
 export interface Goal {
@@ -93,11 +106,38 @@ export interface Payment {
   createdAt: Timestamp;
 }
 
+export interface ShoppingItem {
+  id: string;
+  name: string;
+  estimatedPrice: number;
+  hasPriceEstimate: boolean;
+  quantity?: number;
+  hasQuantity: boolean;
+  purchaseDate?: Timestamp;
+  hasPurchaseDate: boolean;
+  completed: boolean;
+  createdBy: string;
+  createdAt: Timestamp;
+  updatedBy?: string;
+  updatedAt?: Timestamp;
+}
+
+export interface ShoppingList {
+  id: string;
+  title: string;
+  groupId: string;
+  items: ShoppingItem[];
+  createdBy: string;
+  createdAt: Timestamp;
+  updatedAt?: Timestamp;
+}
+
 // Collection references
 const groupsCollection = collection(db, 'groups');
 const expensesCollection = collection(db, 'expenses');
 const usersCollection = collection(db, 'users');
 const paymentsCollection = collection(db, 'payments');
+const goalsCollection = collection(db, 'goals');
 
 // User operations
 export const createUser = async (userData: Omit<User, 'id'>) => {
@@ -271,10 +311,26 @@ export const deleteExpense = async (expenseId: string): Promise<void> => {
   }
 };
 
+// Обновление существующего расхода
+export const updateExpense = async (expenseId: string, expenseData: Partial<Expense>): Promise<void> => {
+  try {
+    const expenseRef = doc(db, 'expenses', expenseId);
+    await updateDoc(expenseRef, expenseData);
+  } catch (error) {
+    console.error('Error updating expense:', error);
+    throw error;
+  }
+};
+
 // Income operations
 export const createIncome = async (incomeData: Omit<Income, 'id'>) => {
-  const docRef = await addDoc(collection(db, 'incomes'), incomeData);
-  return { id: docRef.id, ...incomeData };
+  try {
+    const docRef = await addDoc(collection(db, 'incomes'), incomeData);
+    return { id: docRef.id, ...incomeData };
+  } catch (error) {
+    console.error('Error creating income:', error);
+    throw error;
+  }
 };
 
 export const getUserIncomes = async (userId: string): Promise<Income[]> => {
@@ -296,15 +352,157 @@ export const getUserIncomes = async (userId: string): Promise<Income[]> => {
   }
 };
 
-// Goal operations
-export const createGoal = async (goalData: Omit<Goal, 'id'>) => {
-  const docRef = await addDoc(collection(db, 'goals'), goalData);
-  return { id: docRef.id, ...goalData };
+// Get incomes for a specific group
+export const getGroupIncomes = async (groupId: string): Promise<Income[]> => {
+  try {
+    const q = query(
+      collection(db, 'incomes'),
+      where('groupId', '==', groupId),
+      orderBy('date', 'desc')
+    );
+    const querySnapshot = await getDocs(q);
+    
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as Income));
+  } catch (error) {
+    console.error('Error getting group incomes:', error);
+    throw error;
+  }
 };
 
-export const updateGoalProgress = async (goalId: string, currentAmount: number) => {
-  const goalRef = doc(db, 'goals', goalId);
-  await updateDoc(goalRef, { currentAmount });
+export const deleteIncome = async (incomeId: string): Promise<void> => {
+  try {
+    await deleteDoc(doc(db, 'incomes', incomeId));
+  } catch (error) {
+    console.error('Error deleting income:', error);
+    throw error;
+  }
+};
+
+// Regular Income operations
+export const createRegularIncome = async (incomeData: Omit<RegularIncome, 'id'>) => {
+  try {
+    const docRef = await addDoc(collection(db, 'regularIncomes'), incomeData);
+    return { id: docRef.id, ...incomeData };
+  } catch (error) {
+    console.error('Error creating regular income:', error);
+    throw error;
+  }
+};
+
+export const getUserRegularIncomes = async (userId: string): Promise<RegularIncome[]> => {
+  try {
+    const q = query(
+      collection(db, 'regularIncomes'),
+      where('userId', '==', userId),
+      orderBy('nextDate', 'asc')
+    );
+    const querySnapshot = await getDocs(q);
+    
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as RegularIncome));
+  } catch (error) {
+    console.error('Error getting user regular incomes:', error);
+    throw error;
+  }
+};
+
+export const getGroupRegularIncomes = async (groupId: string): Promise<RegularIncome[]> => {
+  try {
+    const q = query(
+      collection(db, 'regularIncomes'),
+      where('groupId', '==', groupId),
+      orderBy('nextDate', 'asc')
+    );
+    const querySnapshot = await getDocs(q);
+    
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as RegularIncome));
+  } catch (error) {
+    console.error('Error getting group regular incomes:', error);
+    throw error;
+  }
+};
+
+export const updateRegularIncome = async (id: string, data: Partial<RegularIncome>): Promise<void> => {
+  try {
+    const incomeRef = doc(db, 'regularIncomes', id);
+    await updateDoc(incomeRef, data);
+  } catch (error) {
+    console.error('Error updating regular income:', error);
+    throw error;
+  }
+};
+
+export const deleteRegularIncome = async (id: string): Promise<void> => {
+  try {
+    await deleteDoc(doc(db, 'regularIncomes', id));
+  } catch (error) {
+    console.error('Error deleting regular income:', error);
+    throw error;
+  }
+};
+
+// Goals operations
+export const createGoal = async (goalData: Omit<Goal, 'id'>): Promise<Goal> => {
+  try {
+    const docRef = await addDoc(goalsCollection, {
+      ...goalData,
+      createdAt: serverTimestamp()
+    });
+    
+    return {
+      id: docRef.id,
+      ...goalData
+    };
+  } catch (error) {
+    console.error('Error creating goal:', error);
+    throw error;
+  }
+};
+
+export const getGoalsByGroup = async (groupId: string): Promise<Goal[]> => {
+  try {
+    const q = query(goalsCollection, where('groupId', '==', groupId), orderBy('createdAt', 'desc'));
+    const querySnapshot = await getDocs(q);
+    
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as Goal));
+  } catch (error) {
+    console.error('Error getting goals:', error);
+    throw error;
+  }
+};
+
+export const updateGoalProgress = async (goalId: string, currentAmount: number): Promise<void> => {
+  try {
+    const goalRef = doc(db, 'goals', goalId);
+    await updateDoc(goalRef, { 
+      currentAmount,
+      updatedAt: serverTimestamp() 
+    });
+  } catch (error) {
+    console.error('Error updating goal progress:', error);
+    throw error;
+  }
+};
+
+export const deleteGoal = async (goalId: string): Promise<void> => {
+  try {
+    const goalRef = doc(db, 'goals', goalId);
+    await deleteDoc(goalRef);
+  } catch (error) {
+    console.error('Error deleting goal:', error);
+    throw error;
+  }
 };
 
 // Purchase operations
@@ -544,6 +742,129 @@ export const getUserFinancialSummary = async (userId: string) => {
     };
   } catch (error) {
     console.error('Error calculating user financial summary:', error);
+    throw error;
+  }
+};
+
+// ShoppingList operations
+export const createShoppingList = async (listData: Omit<ShoppingList, 'id'>) => {
+  try {
+    const docRef = await addDoc(collection(db, 'shoppingLists'), {
+      ...listData,
+      createdAt: serverTimestamp()
+    });
+    return { id: docRef.id, ...listData };
+  } catch (error) {
+    console.error('Error creating shopping list:', error);
+    throw error;
+  }
+};
+
+export const getShoppingLists = async (groupId: string) => {
+  try {
+    const q = query(
+      collection(db, 'shoppingLists'), 
+      where('groupId', '==', groupId),
+      orderBy('createdAt', 'desc')
+    );
+    const querySnapshot = await getDocs(q);
+    
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as ShoppingList));
+  } catch (error) {
+    console.error('Error getting shopping lists:', error);
+    throw error;
+  }
+};
+
+export const updateShoppingList = async (listId: string, data: Partial<ShoppingList>) => {
+  try {
+    const listRef = doc(db, 'shoppingLists', listId);
+    await updateDoc(listRef, {
+      ...data,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error updating shopping list:', error);
+    throw error;
+  }
+};
+
+export const deleteShoppingList = async (listId: string) => {
+  try {
+    await deleteDoc(doc(db, 'shoppingLists', listId));
+  } catch (error) {
+    console.error('Error deleting shopping list:', error);
+    throw error;
+  }
+};
+
+export const addShoppingItem = async (
+  listId: string, 
+  item: Omit<ShoppingItem, 'id' | 'createdAt'>,
+  currentItems: ShoppingItem[]
+) => {
+  try {
+    const newItem: ShoppingItem = {
+      ...item,
+      id: Date.now().toString(),
+      createdAt: Timestamp.now()
+    };
+    
+    const listRef = doc(db, 'shoppingLists', listId);
+    await updateDoc(listRef, {
+      items: [...currentItems, newItem],
+      updatedAt: serverTimestamp()
+    });
+    
+    return newItem;
+  } catch (error) {
+    console.error('Error adding shopping item:', error);
+    throw error;
+  }
+};
+
+export const updateShoppingItem = async (
+  listId: string,
+  itemId: string,
+  data: Partial<ShoppingItem>,
+  currentItems: ShoppingItem[]
+) => {
+  try {
+    const updatedItems = currentItems.map(item => 
+      item.id === itemId 
+        ? { ...item, ...data, updatedAt: Timestamp.now() } 
+        : item
+    );
+    
+    const listRef = doc(db, 'shoppingLists', listId);
+    await updateDoc(listRef, {
+      items: updatedItems,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error updating shopping item:', error);
+    throw error;
+  }
+};
+
+export const deleteShoppingItem = async (
+  listId: string,
+  itemId: string,
+  currentItems: ShoppingItem[]
+) => {
+  try {
+    const updatedItems = currentItems.filter(item => item.id !== itemId);
+    
+    const listRef = doc(db, 'shoppingLists', listId);
+    await updateDoc(listRef, {
+      items: updatedItems,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error deleting shopping item:', error);
     throw error;
   }
 }; 

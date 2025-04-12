@@ -9,4 +9,5 @@ export { default as Toast } from './Toast';
 export { default as Feedback } from './Feedback';
 export { default as ThemeSwitcher } from './ThemeSwitcher';
 export { default as Pagination } from './Pagination';
-export { default as FilePreview } from './FilePreview'; 
+export { default as FilePreview } from './FilePreview';
+export { default as Header } from './Header'; 

@@ -19,7 +19,14 @@ import {
   AvatarGroup,
   Badge,
   Tooltip,
-  IconButton
+  IconButton,
+  Fab,
+  SpeedDial,
+  SpeedDialAction,
+  SpeedDialIcon,
+  Alert,
+  LinearProgress,
+  CardActionArea
 } from '@mui/material';
 import {
   People as GroupIcon,
@@ -32,11 +39,37 @@ import {
   Refresh as RefreshIcon,
   Public as GlobalIcon,
   Groups as GroupsIcon,
-  Person as PersonIcon
+  Person as PersonIcon,
+  Add as AddIcon,
+  LightbulbOutlined as TipIcon,
+  Timeline as ForecastIcon,
+  Savings as SavingsIcon,
+  TrendingDown as TrendingDownIcon,
+  AddShoppingCart as AddExpenseIcon,
+  Paid as AddIncomeIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useTelegramApp } from '../hooks/useTelegramApp';
 import { getGroups, getUserExpenses, getUserFinancialSummary, getGroupExpenses, Group, Expense, Income } from '../services/firebase';
+
+// Интерфейс для финансовых подсказок
+interface FinancialTip {
+  id: number;
+  text: string;
+  icon: React.ReactNode;
+  color: string;
+}
+
+// Интерфейс для прогнозов
+interface Forecast {
+  id: number;
+  title: string;
+  value: number;
+  change: number;
+  icon: React.ReactNode;
+  period: string;
+}
 
 const Dashboard: React.FC = () => {
   const theme = useTheme();
@@ -53,6 +86,10 @@ const Dashboard: React.FC = () => {
     participants: number;
     expenses: Expense[];
   } | null>(null);
+  const [speedDialOpen, setSpeedDialOpen] = useState(false);
+  const [showTip, setShowTip] = useState(true);
+  const [tipIndex, setTipIndex] = useState(0);
+  const [showForecasts, setShowForecasts] = useState(true);
 
   // Financial data with proper typing
   const [stats, setStats] = useState({
@@ -62,6 +99,62 @@ const Dashboard: React.FC = () => {
     recentActivity: [] as (Expense | Income)[],
     groupCount: 0,
   });
+
+  // Прогнозы расходов и экономии
+  const forecasts: Forecast[] = [
+    {
+      id: 1,
+      title: 'Прогноз расходов',
+      value: Math.round(stats.totalExpenses * 1.1), // 10% больше текущих расходов
+      change: 10,
+      icon: <TrendingDownIcon />,
+      period: 'на следующий месяц'
+    },
+    {
+      id: 2, 
+      title: 'Потенциал экономии',
+      value: Math.round(stats.totalExpenses * 0.15), // 15% от текущих расходов
+      change: 15,
+      icon: <SavingsIcon />,
+      period: 'при оптимизации трат'
+    },
+    {
+      id: 3,
+      title: 'Баланс к концу месяца',
+      value: Math.round(stats.balance + (stats.totalIncome - stats.totalExpenses) * 0.5),
+      change: stats.balance > 0 ? 8 : -5,
+      icon: <ForecastIcon />,
+      period: 'прогноз'
+    }
+  ];
+
+  // Финансовые подсказки
+  const financialTips: FinancialTip[] = [
+    {
+      id: 1,
+      text: 'Создавайте отдельные группы для разных категорий расходов, чтобы лучше отслеживать бюджет',
+      icon: <GroupsIcon />,
+      color: theme.palette.primary.main
+    },
+    {
+      id: 2,
+      text: 'Регулярно отмечайте доходы и расходы для точного анализа финансов',
+      icon: <AnalyticsIcon />,
+      color: theme.palette.success.main
+    },
+    {
+      id: 3,
+      text: 'Установите финансовые цели и отслеживайте прогресс их достижения',
+      icon: <GoalsIcon />,
+      color: theme.palette.warning.main
+    },
+    {
+      id: 4,
+      text: `${stats.balance > 0 ? 'У вас положительный баланс! Рассмотрите возможность сбережений' : 'Обратите внимание на отрицательный баланс - пора сократить расходы'}`,
+      icon: <SavingsIcon />,
+      color: stats.balance > 0 ? theme.palette.success.main : theme.palette.error.main
+    }
+  ];
 
   // Fetch user data from Firebase
   useEffect(() => {
@@ -550,56 +643,239 @@ const Dashboard: React.FC = () => {
     );
   };
 
-  return (
-    <Container maxWidth="md" sx={{ py: { xs: 2, sm: 4 }, pb: 10 }}>
-      <motion.div
-        initial="hidden"
-        animate="visible"
-        variants={containerVariants}
-      >
-        {/* Header with welcome message */}
-        <motion.div variants={headerVariants}>
-          <Box sx={{ 
-            mb: 3, 
-            display: 'flex', 
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexDirection: { xs: 'column', sm: 'row' },
-            textAlign: { xs: 'center', sm: 'left' },
-          }}>
-            <Box>
-              <Typography 
-                variant="h4" 
-                component="h1" 
-                sx={{ 
-                  fontWeight: 700,
-                  mb: 1,
-                  fontSize: { xs: '1.75rem', sm: '2.25rem' },
-                  background: 'linear-gradient(45deg, #0088cc, #2AABEE)',
-                  backgroundClip: 'text',
-                  color: 'transparent',
-                  WebkitBackgroundClip: 'text',
-                }}
-              >
-                Добро пожаловать
-              </Typography>
-              <Typography variant="subtitle1" color="text.secondary">
-                Управляйте финансами вместе с близкими
-              </Typography>
-            </Box>
-            <Avatar
-              sx={{
-                width: { xs: 60, sm: 70 },
-                height: { xs: 60, sm: 70 },
-                bgcolor: theme.palette.primary.main,
-                mt: { xs: 2, sm: 0 },
-                boxShadow: '0 4px 12px rgba(0, 136, 204, 0.3)',
+  // Обработчики быстрых действий
+  const handleQuickAddExpense = () => {
+    navigate('/expenses?action=add');
+    setSpeedDialOpen(false);
+  };
+
+  const handleQuickAddIncome = () => {
+    navigate('/incomes?action=add');
+    setSpeedDialOpen(false);
+  };
+
+  // Обработчик закрытия подсказки
+  const handleCloseTip = () => {
+    setShowTip(false);
+  };
+
+  // Обработчик смены подсказки
+  const handleNextTip = () => {
+    setTipIndex((prevIndex) => (prevIndex + 1) % financialTips.length);
+  };
+
+  // Render forecasts
+  const renderForecasts = () => (
+    <Grid container spacing={2} sx={{ mb: 3 }}>
+      {forecasts.map((forecast) => (
+        <Grid item xs={12} sm={4} key={forecast.id}>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 + forecast.id * 0.1 }}
+          >
+            <Card 
+              sx={{ 
+                borderRadius: '16px',
+                height: '100%',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+                border: '1px solid',
+                borderColor: alpha(theme.palette.primary.light, 0.3),
               }}
             >
-              {user?.first_name ? user.first_name.charAt(0) : 'U'}
+              <CardContent sx={{ p: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                  <Avatar
+                    sx={{
+                      bgcolor: alpha(theme.palette.primary.main, 0.1),
+                      color: theme.palette.primary.main,
+                      width: 32,
+                      height: 32,
+                      mr: 1
+                    }}
+                  >
+                    {forecast.icon}
+                  </Avatar>
+                  <Typography variant="subtitle2" color="textSecondary">
+                    {forecast.title}
+                  </Typography>
+                </Box>
+                
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  {forecast.value.toLocaleString()} ₽
+                </Typography>
+                
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Chip
+                    size="small"
+                    label={`${forecast.change > 0 ? '+' : ''}${forecast.change}%`}
+                    sx={{
+                      bgcolor: forecast.id === 2 
+                        ? alpha(theme.palette.success.main, 0.1) 
+                        : forecast.change > 0 
+                          ? alpha(theme.palette.success.main, 0.1) 
+                          : alpha(theme.palette.error.main, 0.1),
+                      color: forecast.id === 2 
+                        ? theme.palette.success.main 
+                        : forecast.change > 0 
+                          ? theme.palette.success.main 
+                          : theme.palette.error.main,
+                      fontSize: '0.7rem',
+                      height: 20
+                    }}
+                  />
+                  <Typography variant="caption" color="textSecondary">
+                    {forecast.period}
+                  </Typography>
+                </Box>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </Grid>
+      ))}
+    </Grid>
+  );
+
+  // Render financial tip
+  const renderFinancialTip = () => {
+    const currentTip = financialTips[tipIndex];
+    
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        key={`tip-${tipIndex}`}
+      >
+        <Alert
+          severity="info"
+          icon={
+            <Avatar
+              sx={{
+                bgcolor: alpha(currentTip.color, 0.1),
+                color: currentTip.color,
+                width: 28,
+                height: 28
+              }}
+            >
+              {currentTip.icon}
             </Avatar>
+          }
+          action={
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <IconButton size="small" onClick={handleNextTip} sx={{ mr: 0.5 }}>
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+              <IconButton size="small" onClick={handleCloseTip}>
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          }
+          sx={{
+            mb: 3,
+            borderRadius: '12px',
+            border: '1px solid',
+            borderColor: alpha(theme.palette.info.main, 0.2),
+            '& .MuiAlert-message': {
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center'
+            }
+          }}
+        >
+          <Typography variant="body2" sx={{ ml: 1 }}>
+            {currentTip.text}
+          </Typography>
+        </Alert>
+      </motion.div>
+    );
+  };
+
+  // speed dial actions
+  const actions = [
+    { icon: <AddExpenseIcon />, name: 'Добавить расход', action: handleQuickAddExpense },
+    { icon: <AddIncomeIcon />, name: 'Добавить доход', action: handleQuickAddIncome },
+  ];
+
+  return (
+    <Container maxWidth="md" sx={{ py: 2 }}>
+      {/* Floating speed dial for quick actions */}
+      <SpeedDial
+        ariaLabel="Быстрые действия"
+        sx={{ position: 'fixed', bottom: 80, right: 16 }}
+        icon={<SpeedDialIcon />}
+        open={speedDialOpen}
+        onOpen={() => setSpeedDialOpen(true)}
+        onClose={() => setSpeedDialOpen(false)}
+        FabProps={{
+          sx: {
+            bgcolor: theme.palette.primary.main,
+            '&:hover': {
+              bgcolor: theme.palette.primary.dark,
+            }
+          }
+        }}
+      >
+        {actions.map((action) => (
+          <SpeedDialAction
+            key={action.name}
+            icon={action.icon}
+            tooltipTitle={action.name}
+            onClick={action.action}
+            FabProps={{
+              sx: {
+                bgcolor: 'white',
+                '&:hover': {
+                  bgcolor: alpha(theme.palette.primary.main, 0.1),
+                }
+              }
+            }}
+          />
+        ))}
+      </SpeedDial>
+
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5 }}
+      >
+        {/* Error message */}
+        {error && (
+          <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
+            {error}
+          </Alert>
+        )}
+
+        {/* User greeting */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+            <Avatar 
+              sx={{ 
+                bgcolor: theme.palette.primary.main,
+                width: 40,
+                height: 40,
+                mr: 2
+              }}
+            >
+              {user?.first_name ? user.first_name.charAt(0) : <PersonIcon />}
+            </Avatar>
+            <Box>
+              <Typography variant="h5" component="h1" sx={{ fontWeight: 600 }}>
+                {user?.first_name ? `Привет, ${user.first_name}!` : 'Привет!'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </Typography>
+            </Box>
           </Box>
         </motion.div>
+
+        {/* Финансовая подсказка */}
+        {!isLoading && showTip && renderFinancialTip()}
 
         {/* Group selector */}
         {!isLoading && groups.length > 0 && (
@@ -662,6 +938,30 @@ const Dashboard: React.FC = () => {
             </Box>
           </Paper>
         </motion.div>
+
+        {/* Прогнозы расходов и экономии */}
+        {!isLoading && showForecasts && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+          >
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center' }}>
+                <ForecastIcon sx={{ mr: 1 }} fontSize="small" />
+                Финансовые прогнозы
+              </Typography>
+              <Button 
+                size="small" 
+                onClick={() => setShowForecasts(false)}
+                sx={{ minWidth: 'auto', width: 24, height: 24, p: 0 }}
+              >
+                <CloseIcon fontSize="small" />
+              </Button>
+            </Box>
+            {renderForecasts()}
+          </motion.div>
+        )}
 
         {/* Main menu grid */}
         <Grid container spacing={2}>
