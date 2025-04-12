@@ -1,0 +1,138 @@
+:root {
+  --tg-theme-bg-color: #ffffff;
+  --tg-theme-text-color: #000000;
+  --tg-theme-hint-color: #999999;
+  --tg-theme-link-color: #0088cc;
+  --tg-theme-button-color: #0088cc;
+  --tg-theme-button-text-color: #ffffff;
+  --tg-theme-secondary-bg-color: #f0f2f5;
+  
+  /* Custom variables for our app */
+  --app-radius-sm: 8px;
+  --app-radius-md: 12px;
+  --app-radius-lg: 16px;
+  --app-shadow-sm: 0 2px 8px rgba(0,0,0,0.08);
+  --app-shadow-md: 0 4px 12px rgba(0,0,0,0.12);
+  --app-shadow-lg: 0 8px 24px rgba(0,0,0,0.15);
+  --app-transition-fast: 0.2s ease;
+  --app-transition-normal: 0.3s ease;
+  --app-transition-slow: 0.5s ease;
+  --app-spacing-xs: 4px;
+  --app-spacing-sm: 8px;
+  --app-spacing-md: 16px;
+  --app-spacing-lg: 24px;
+  --app-spacing-xl: 32px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  height: -webkit-fill-available;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--tg-theme-bg-color);
+  color: var(--tg-theme-text-color);
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  overscroll-behavior: none;
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Telegram-specific Safari fixes */
+@supports (-webkit-touch-callout: none) {
+  #root, body {
+    height: -webkit-fill-available;
+  }
+}
+
+/* Better touch interactions */
+input, button, a, select {
+  touch-action: manipulation;
+}
+
+/* Custom scrollbar for webkit browsers */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--tg-theme-secondary-bg-color);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--tg-theme-hint-color);
+  border-radius: 3px;
+  transition: background var(--app-transition-fast);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--tg-theme-link-color);
+}
+
+/* Smooth element animations */
+.fade-in {
+  animation: fadeIn var(--app-transition-normal) forwards;
+}
+
+.slide-up {
+  animation: slideUp var(--app-transition-normal) forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Disable blue highlight on mobile */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Improved focus styles for accessibility */
+:focus-visible {
+  outline: 2px solid var(--tg-theme-link-color);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Material UI custom overrides for Telegram Mini App */
+.MuiPaper-root {
+  background-color: var(--tg-theme-bg-color);
+}
+
+.MuiCard-root {
+  background-color: var(--tg-theme-bg-color);
+  box-shadow: var(--app-shadow-sm);
+}
+
+/* Telegram specific transitions and fixes */
+@media (max-width: 650px) {
+  html, body {
+    font-size: 15px;
+  }
+} 
